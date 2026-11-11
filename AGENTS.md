@@ -1,86 +1,82 @@
-# AutoVision - Agent Guidelines & Project Instructions
+# AutoVision - Agent Guidelines & Project Architecture
 
-Welcome to **AutoVision**, our final year graduation project (Bitirme Projesi). This document serves as the primary instructions and context repository for AI agents (Antigravity, Copilot, etc.) assisting on this codebase.
-
----
-
-## 1. Project Overview & Repository
-
-- **Repository**: [AutoVision (GitHub)](https://github.com/Emadwalidc/AutoVision.git)
-- **Domain**: Computer Vision, Vehicle Analysis, Representation Learning & Detection.
-- **Current Development Phase**: **Phase 1: Feature Clustering & Unsupervised Discovery**
-- **Future Development Phase**: **Phase 2: YOLO Object Detection & End-to-End Pipeline**
+Welcome to **AutoVision**, our final year graduation project (Bitirme Projesi). This document serves as the primary instructions and architecture repository for AI agents assisting on this codebase.
 
 ---
 
-## 2. Project Roadmap & Priorities
+## 1. Project Vision & Final Product Objective
 
-### Phase 1: Clustering & Unsupervised Feature Analysis (CURRENT FOCUS)
 > [!IMPORTANT]
-> **Our immediate mission is Clustering.** Do NOT jump to YOLO training or object detection models yet.
-> The dataset currently present is a partial subset; more data will be incorporated progressively.
-
-**Objectives & Tasks:**
-1. **Feature Exploration**:
-   - Analyze embeddings in `train_features.csv` (dimension, distributions, normalization, outliers).
-   - Correlate feature vectors with vehicle class annotations in `train_data.csv`.
-2. **Dimensionality Reduction**:
-   - Implement PCA, t-SNE, and UMAP for 2D/3D visualization of feature spaces.
-   - Assess separation and cluster compactness among car makes/models/years.
-3. **Clustering Algorithms**:
-   - Evaluate multiple clustering algorithms:
-     - Partitioning: K-Means, MiniBatch K-Means
-     - Density-based: DBSCAN, HDBSCAN
-     - Hierarchical: Agglomerative Clustering (Ward, Complete, Average linkage)
-     - Probabilistic: Gaussian Mixture Models (GMM)
-4. **Evaluation & Metrics**:
-   - **Internal metrics** (unsupervised): Silhouette Score, Calinski-Harabasz Index, Davies-Bouldin Index.
-   - **External metrics** (against ground truth `label` from `train_data.csv`): Adjusted Rand Index (ARI), Normalized Mutual Information (NMI), Homogeneity, Completeness, V-Measure, Cluster Purity.
-5. **Visual Error & Cluster Inspection**:
-   - Map clustered samples back to actual images in `train_images/` to visually verify cluster coherence and identify confusion patterns.
+> **Ultimate System Goal**:  
+> An end-to-end Computer Vision system where a user uploads a single arbitrary vehicle photograph, and the model outputs full multi-attribute vehicle recognition:
+> 1. **Brand (Make)**: e.g., *Toyota, Ford, Honda, Chevrolet, Nissan, Volkswagen, Dodge*
+> 2. **Model**: e.g., *Camry, Mustang, Accord, Explorer, Altima, Jetta, Grand Caravan*
+> 3. **Year / Generation**: e.g., *2002-2003, 2005-2006, 2000-2001, 2004-2005*
+> 4. **Type (Body Category)**: e.g., *Sedan, SUV, Minivan, Coupe/Sports, Hatchback, Truck*
+> 5. **Color**: e.g., *White, Black, Silver/Gray, Red, Blue, etc.*
 
 ---
 
-### Phase 2: YOLO Integration (FUTURE MILESTONE)
-> [!NOTE]
-> We will use **YOLO** (e.g. YOLOv8 / YOLOv11) for vehicle localization, bounding box detection, and fine-grained classification once the complete dataset is ready.
-> When designing Phase 1 scripts and data pipelines, keep them modular so that YOLO dataset generators (e.g. YOLO format annotations, train/val/test splits) can be integrated seamlessly later.
+## 2. End-to-End Pipeline Architecture
+
+```mermaid
+flowchart TD
+    A["User Uploads Vehicle Photo (Raw Image)"] --> B["Stage 1: YOLO Vehicle Localization & Cropping"]
+    B --> C["Cropped Vehicle ROI (Background Removed)"]
+    C --> D1["Attribute Head 1: Brand / Make Classifier"]
+    C --> D2["Attribute Head 2: Model Classifier"]
+    C --> D3["Attribute Head 3: Year Range Classifier"]
+    C --> D4["Attribute Head 4: Body Type Classifier (Sedan/SUV/Van/Coupe)"]
+    C --> D5["Attribute Head 5: Color Classifier (Color Histograms / HSV / CNN)"]
+    D1 & D2 & D3 & D4 & D5 --> E["Unified Recognition JSON Output"]
+```
 
 ---
 
-## 3. Dataset Specification
+## 3. Project Roadmap & Development Phases
+
+### Phase 1: Feature Exploration, Clustering & Attribute Decomposition (CURRENT)
+- **Attribute Decomposition**:
+  - Parse ground truth strings `<brand>_<model>_<year>` into structured columns: `brand`, `model`, `year`, `body_type`.
+- **Color Extraction Module**:
+  - Implement vehicle color detection from `train_images/` using central ROI color histograms / HSV K-Means clustering.
+- **Representation Analysis**:
+  - Feature distributions, PCA variance, t-SNE / Spectral manifold learning.
+  - Understand which vehicle attributes (body type vs. color vs. make/model) are captured by unsupervised representations.
+
+### Phase 2: YOLO Detection & Bounding Box Pipeline (UPCOMING)
+- **Object Detection**: Train YOLO (YOLOv8 / YOLOv11) to detect vehicles in raw images and crop the vehicle bounding box, eliminating noisy background clutter.
+- **Dataset Generation**: Automated conversion of annotations into standard YOLO format (`images/`, `labels/`, `data.yaml`).
+
+### Phase 3: Multi-Task Classification & Unified Inference Engine
+- **Multi-Head Attribute Classifier**: Train backbones (e.g. EfficientNet, ResNet, or YOLO classification head) to simultaneously predict `brand`, `model`, `year`, and `type`.
+- **Color Recognition Integration**: Combine CNN features with HSV/color analysis.
+- **Inference CLI & Web UI**:
+  - An interactive demo (Streamlit / Gradio / FastAPI) where the user drops an image and sees:
+    - Bounding box overlay
+    - Attributes card: **Brand**, **Model**, **Year**, **Body Type**, **Color**, with prediction confidence scores.
+
+---
+
+## 4. Dataset Specification
 
 Current workspace files:
-- `train_data.csv`: CSV with no header (`<class_name>,<image_filename>`). Contains class labels for 5,000 samples across multiple car models (e.g., `chevrolet_impala_2004-2005`, `ford_explorer_2001-2002`).
-- `train_features.csv`: Headerless matrix of pre-extracted feature embeddings (5,000 samples).
-- `train_images/`: Directory containing subfolders named by vehicle class with individual image files.
-- **Data Scaling Note**: More images and features will be added in upcoming project sprints. Keep code dynamic to handle varying sample counts, dimensions, and classes.
+- `train_data.csv`: CSV with no header (`<class_name>,<image_filename>`).
+  - Class names follow format `<brand>_<model>_<year>` (e.g. `toyota_camry_2002-2003`).
+- `train_features.csv`: Headerless matrix of 512-dim CNN embeddings (5,000 samples).
+- `train_images/`: Raw images organized in subfolders by class name.
+- **Data Scaling Note**: More images and features will be added in upcoming project sprints. Keep code modular and dynamic.
 
 ---
 
-## 4. Environment & Execution Guidelines for Agents
+## 5. Environment & Execution Guidelines for Agents
 
-- **Python Virtual Environment**: `.venv` located at project root (Python 3.14).
-  - Executable path: `.\.venv\Scripts\python.exe`
-  - Activation: `.\.venv\Scripts\Activate.ps1` (PowerShell) or `.\.venv\Scripts\activate.bat` (CMD)
-- **Jupyter Kernel**: Kernel spec `bitirme` (`Python 3.14 (bitirme)`).
-- **Dependencies**: All dependencies must be tracked in `requirements.txt`. Before adding new libraries (e.g., `umap-learn`, `hdbscan`), ensure compatibility and append them to `requirements.txt`.
-- **Git & Large Files**:
-  - Raw images in `train_images/` (~211 MB) and large feature matrices should be handled carefully. Do not commit large binary blobs directly to Git without confirmation; prefer Git LFS or keeping large raw datasets local.
-  - Always check `git status` and keep `.gitignore` updated.
-
----
-
-## 5. Coding Standards & Agent Workflow Rules
-
-1. **Self-Contained & Reproducible**:
-   - Seed all random number generators (`np.random.seed(42)`, `random_state=42`) for reproducibility in clustering and dimensionality reduction.
-2. **Modular Architecture**:
-   - For exploratory analysis, use Jupyter Notebooks (`notebook.ipynb` or `notebooks/`).
-   - For reusable logic (feature loaders, clustering pipelines, visualization functions, evaluation metric calculators), write clean Python modules under a dedicated `src/` directory.
-3. **Meaningful Visualizations**:
-   - Always label axes, include titles, add legends, and save high-resolution figures (e.g., `reports/figures/` or `output/`) when creating cluster plots or confusion matrices.
-4. **Git Hygiene**:
-   - Use conventional commit messages: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.
-   - Never commit `.venv/`, `.ipynb_checkpoints/`, or temporary logs.
-
+- **Python Virtual Environment**: `.venv` at project root (Python 3.14).
+  - Executable: `.\.venv\Scripts\python.exe`
+  - Activation: `.\.venv\Scripts\Activate.ps1`
+- **Jupyter Kernel**: `Python 3.14 (bitirme)` (`bitirme`).
+- **Dependencies**: All packages tracked in `requirements.txt`.
+- **Git Hygiene**:
+  - Commit messages must follow conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.
+  - Raw images in `train_images/` are kept local / ignored to prevent repo bloat.
+  - All reusable modules live under `src/`, notebooks under root or `notebooks/`, and figures under `reports/figures/`.
