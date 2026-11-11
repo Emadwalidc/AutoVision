@@ -1,0 +1,8 @@
+Algorithm,Clusters,Silhouette,Calinski_Harabasz,Davies_Bouldin,ARI,NMI,Homogeneity,Completeness,V_Measure,Purity
+K-Means (L2-norm),10,0.0486,180.77,3.7004,0.1233,0.2323,0.2308,0.2338,0.2323,0.2934
+K-Means (StandardScaler),10,0.0312,142.43,3.9909,0.106,0.2193,0.2171,0.2216,0.2193,0.295
+MiniBatch K-Means,10,0.0453,176.59,3.734,0.1086,0.2146,0.2119,0.2174,0.2146,0.2872
+Agglomerative (Ward),10,0.0372,161.63,3.521,0.1008,0.2487,0.2377,0.2609,0.2487,0.2916
+Agglomerative (Cosine-Average),10,0.0519,2.89,1.2645,0.0,0.0053,0.0027,0.1921,0.0053,0.1024
+Gaussian Mixture (Diag GMM),10,0.0367,172.14,3.7211,0.1023,0.2101,0.2081,0.2121,0.2101,0.2802
+"DBSCAN (eps=0.45, min=10)",1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
