@@ -46,3 +46,6 @@ Desktop.ini
 # Temporary / Log files
 *.log
 
+# Large Datasets & Raw Images (Keep local / Git LFS)
+train_images/
+

@@ -83,3 +83,4 @@ Current workspace files:
 4. **Git Hygiene**:
    - Use conventional commit messages: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.
    - Never commit `.venv/`, `.ipynb_checkpoints/`, or temporary logs.
+
