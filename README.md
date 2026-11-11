@@ -70,3 +70,4 @@ git commit -m "feat: proje baslangic commit'i"
 # git branch -M main
 # git push -u origin main
 ```
+
