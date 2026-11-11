@@ -1,0 +1,16 @@
+# Core Notebook & Environment
+jupyter>=1.1.1
+notebook>=7.3.0
+ipykernel>=6.29.0
+
+# Data Science & Analysis
+numpy>=2.0.0
+pandas>=2.2.0
+matplotlib>=3.9.0
+seaborn>=0.13.0
+scikit-learn>=1.5.0
+pillow>=10.4.0
+
+# Optional Computer Vision & Deep Learning libraries:
+# opencv-python
+# torch torchvision --index-url https://download.pytorch.org/whl/cu124
