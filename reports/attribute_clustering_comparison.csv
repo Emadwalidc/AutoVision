@@ -1,0 +1,5 @@
+Target Attribute,Classes (k),Baseline ARI,Spectral ARI,Baseline NMI,Spectral NMI,Baseline Purity,Spectral Purity,Spectral Silhouette
+Body Type,4,0.2057,0.0779,0.2543,0.1638,0.6914,0.6448,0.3133
+Brand (Make),7,0.0472,0.0435,0.1247,0.126,0.32,0.3132,0.415
+Model,10,0.1136,0.1361,0.2394,0.2983,0.3032,0.3482,0.5023
+Year (Era),5,0.0579,0.1276,0.1402,0.1939,0.4666,0.483,0.3353
