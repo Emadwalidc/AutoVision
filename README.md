@@ -1,98 +1,128 @@
 # AutoVision: Intelligent Multi-Attribute Vehicle Recognition System
 
-**AutoVision** is our final year graduation project (Bitirme Projesi) focused on comprehensive vehicle recognition from photographs using deep computer vision.
+**AutoVision** is a graduation thesis project (`Bitirme Projesi`) implementing end-to-end vehicle localization, 5-attribute multi-task classification, few-shot prototype matching, and visual similarity retrieval across a FastAPI ML backend and an Expo Go mobile client.
 
 ---
 
-## 🎯 Project Objective
+## Project Objective
 
-The ultimate goal of AutoVision is to allow a user to **upload a single arbitrary car photograph** and receive full multi-attribute vehicle identification:
+Given a single arbitrary street photograph containing one or more vehicles, AutoVision predicts:
 
-1. **Brand (Make)**: e.g. *Toyota, Ford, Honda, Chevrolet, Nissan, Volkswagen, Dodge*
-2. **Model**: e.g. *Camry, Mustang, Accord, Explorer, Altima, Jetta, Grand Caravan*
-3. **Year / Generation**: e.g. *2002-2003, 2005-2006, 2000-2001, 2004-2005*
-4. **Type (Body Category)**: e.g. *Sedan, SUV, Minivan, Coupe/Sports, Hatchback*
-5. **Color**: e.g. *White, Black, Silver, Red, Blue, etc.*
+1. **Make** (22 trained manufacturers)
+2. **Model** (225 CosFace head classes + 342 nearest-prototype / few-shot classes)
+3. **Model Year** (DLDL distribution learning + uncertainty interval `[range_low, range_high]` and `±std`)
+4. **Body Type** (8 macro categories: Sedan, SUV, Pickup, Minivan, Coupe, Hatchback, Wagon, Convertible)
+5. **Exterior Color** (15 fine VCoR classes, 12 automotive groups, and calibrated RGB hex swatches)
+6. **Similar Gallery Matches** (Cosine similarity search across 71,765 indexed reference images)
 
 ---
 
-## 🏗️ System Architecture
+## System Architecture
 
 ```mermaid
 flowchart TD
-    A["Raw Car Photograph Upload"] --> B["Stage 1: YOLO Object Detection"]
-    B --> C["Cropped Vehicle Bounding Box (Noisy Background Eliminated)"]
-    C --> D1["Brand / Make Classifier"]
-    C --> D2["Model Classifier"]
-    C --> D3["Year / Generation Classifier"]
-    C --> D4["Body Type Classifier (Sedan/SUV/Van/Coupe)"]
-    C --> D5["Vehicle Color Extraction (HSV / CNN Head)"]
-    D1 & D2 & D3 & D4 & D5 --> E["Unified Recognition Card (UI / JSON)"]
+    Mobile["Expo Go Mobile App (React Native TypeScript)"] -->|"POST /api/v1/analyze (multipart JPEG)"| API["FastAPI ML Backend (backend/main.py)"]
+    API -->|"Stage 1"| YOLO["YOLOv8n Vehicle Detector (Multi-Box Crops)"]
+    YOLO -->|"Stage 2"| ViT["AutoVisionMultiTaskNet (OpenCLIP ViT-B/16)"]
+    ViT --> Heads["Make / CosFace Model / DLDL Year / Body / Spatial-Attn Color + Prototypes"]
+    ViT -->|"512-D L2 Embedding"| Cosine["Cosine Gallery Retrieval (71,765 VMMRdb photos)"]
+    Heads & Cosine -->|"JSON BBoxes + Attributes + Thumbnails"| Mobile
 ```
 
 ---
 
-## 📁 Repository Structure
+## Verified Benchmark Highlights (Stage 5 Holdout Evaluation)
 
-```
+| Task | Metric | Baseline (Frozen OpenCLIP) | Fine-Tuned AutoVision | Gain |
+| :--- | :--- | ---: | ---: | ---: |
+| **Make** | Top-1 Accuracy | 91.91% | **98.27%** | +6.36% |
+| **Model** | CosFace Top-1 / Top-5 | 90.52% / 98.65% | **96.38% / 98.92%** | +5.86% |
+| **Model** | Nearest Prototype Top-1 | 64.09% | **96.16%** | +32.07% |
+| **Model** | Cosine kNN (`k=5`) Top-1 | 90.78% | **97.15%** | +6.37% |
+| **Few-Shot** | 1-Shot Prototype Top-1 / Top-5 | 35.07% / 50.69% | **39.06% / 71.35%** | +20.66% (Top-5) |
+| **Body Type** | Top-1 / Macro-F1 | 92.35% / 87.60% | **97.69% / 95.77%** | +5.34% |
+| **Year (DLDL)** | MAE / Within ±2 Years | 2.03 yr / 58.72% | **1.05 yr / 87.56%** | -0.97 yr |
+| **Color (VCoR)** | 15-Class Top-1 / 12-Group Top-1 | 28.08% / 29.63% | **86.76% / 90.81%** | +58.68% / +61.18% |
+
+---
+
+## Repository Structure
+
+```text
 AutoVision/
-│
-├── .venv/                   # Python virtual environment (Python 3.14)
-├── train_images/            # Raw vehicle images (organized by class, local/ignored in Git)
-├── train_data.csv           # Image-to-label mapping (<class_name>, <filename>)
-├── train_features.csv       # Pre-extracted 512-dim CNN embeddings (5,000 samples)
-├── AGENTS.md                # Agent instructions and development guidelines
-├── requirements.txt         # Project dependencies
-├── notebook.ipynb           # Interactive exploration and clustering notebook
-├── src/
-│   ├── clustering_pipeline.py    # Baseline clustering and PCA profiling
-│   ├── optimized_clustering.py   # Spectral manifold learning & optimization suite
-│   ├── cluster_inspection.py     # Prototype extraction and visual confusion analysis
-│   └── macro_and_visual_analysis.py # Macro-category body classification and prototypes
-├── reports/
-│   ├── optimization_benchmark_metrics.csv # Full metric evaluation table
-│   └── figures/                  # High-resolution benchmark plots and montages
-└── README.md                # Project documentation
+├── backend/                     # Stage 6A: Modular FastAPI ML inference service
+│   ├── main.py                  # FastAPI app factory, lifespan, CORS, error handlers (`app`)
+│   ├── config.py                # Pydantic settings & artifact paths
+│   ├── schemas.py               # Strict Pydantic v2 API contracts
+│   ├── security.py              # Upload validation & path traversal guards
+│   ├── ml/                      # detector.py, classifier.py, retriever.py, pipeline.py
+│   └── routers/                 # health.py, analyze.py, gallery.py
+├── mobile/                      # Stage 6B: Expo Go React Native TypeScript client
+│   ├── App.tsx                  # Root container, Inter font loader, ErrorBoundary, persistent tab shell
+│   ├── app.json                 # Dark OLED theme, permissions & local-network cleartext HTTP config
+│   ├── package.json
+│   ├── src/
+│   │   ├── components/          # VehiclePhotoFrame, VehicleCard, SimilarCarsStrip, ConnectionSheet, BottomTabBar
+│   │   ├── screens/             # ScanScreen, GarageScreen
+│   │   ├── services/            # apiClient.ts, storage.ts (AsyncStorage)
+│   │   ├── theme/tokens.ts      # True-black flat design tokens (#000000 / #111111 / #C6F24E + Inter)
+│   │   ├── types/api.ts         # 1-to-1 mirror of backend/schemas.py
+│   │   └── utils/formatters.ts  # Pure formatting & letterbox geometry helpers
+│   └── tests/formatters.test.mjs
+├── src/                         # Data prep, OpenCLIP extraction & Stage 5 evaluation scripts
+├── kaggle/                      # Kaggle 89.5k training & extraction scripts
+├── models/                      # Local trained weights & indexes (gitignored)
+├── reports/                     # Stage evaluation reports, CSVs, figures & thesis_log.md
+├── tests/                       # Backend, pipeline & evaluation Python unit tests
+├── requirements.txt
+└── README.md
 ```
 
 ---
 
-## 🚀 Setup & Execution
+## Quick Start (2 Terminals over Wi-Fi)
 
-### 1. Activate Virtual Environment
+### Terminal 1 — FastAPI ML Backend (Windows)
 
-**Windows PowerShell**:
 ```powershell
+cd D:\Projects\bitirme\AutoVision
 .\.venv\Scripts\Activate.ps1
+uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 
-**Windows Command Prompt (CMD)**:
-```cmd
-.\.venv\Scripts\activate.bat
-```
+Verify local readiness: open `http://192.168.1.13:8000/docs` or `GET /health`. Ensure TCP port `8000` is allowed on Private Wi-Fi in Windows Defender Firewall so your phone can reach the backend.
 
-### 2. Run Optimization Suite
-To execute the clustering benchmarks and export figures:
+### Terminal 2 — Expo Go Mobile Client
+
 ```powershell
-python src/optimized_clustering.py
+cd D:\Projects\bitirme\AutoVision\mobile
+npx expo start
 ```
 
-### 3. Interactive Jupyter Notebook
-```powershell
-jupyter notebook
-```
-Or open [notebook.ipynb](notebook.ipynb) directly in Antigravity IDE / VS Code.
+Scan the QR code in **Expo Go** (iOS/Android on the same Wi-Fi network) or press `w` for Web preview. If a network address change is needed (default `http://192.168.1.13:8000`), tap **Change address** on the connection prompt or long-press the **AutoVision** title.
 
 ---
 
-## 🔄 Project Roadmap
+## Automated Verification Suites
 
-- [x] **Phase 1: Feature Representation & Clustering Analysis**
-  - Evaluated baseline vs. manifold clustering (Spectral Embedding achieved **0.4935 Silhouette** and **0.1486 ARI**).
-  - Decomposed ground truth into multi-attribute structure (`brand`, `model`, `year`, `body_type`).
-- [ ] **Phase 2: YOLO Vehicle Detection & Cropping**
-  - Train YOLO (e.g. YOLOv8/v11) to localize vehicles in real-world scenes.
-  - Automatically crop vehicle bounding box to eliminate background noise.
-- [ ] **Phase 3: Multi-Task Attribute Classification & Color Head**
-  - Train multi-head classifier for Brand, Model, Year, Body Type, and Color.
-  - Build interactive demo UI (upload photo -> instant attribute card).
+- **Backend & ML tests (`unittest`)**:
+  ```powershell
+  python -m unittest discover -s tests -p "test_*.py" -v
+  ```
+- **Mobile TypeScript check & formatter unit tests**:
+  ```powershell
+  cd D:\Projects\bitirme\AutoVision\mobile
+  npx tsc --noEmit
+  node --test tests/formatters.test.mjs
+  ```
+
+---
+
+## Project Roadmap
+
+- [x] **Stage 1–2**: Baseline feature extraction (`OpenCLIP ViT-B/16` & `DINOv2`), spectral manifold clustering, and taxonomy cleanup.
+- [x] **Stage 3A–3B**: 5-attribute manifest preparation, VCoR 15/12 color taxonomy, and `AutoVisionMultiTaskNet` architecture.
+- [x] **Stage 4**: Multi-Task Fine-Tuning on Kaggle GPU (`89,535` VMMRdb + `10,373` VCoR images).
+- [x] **Stage 5**: Before/After evaluation report & 7 diagnostic figures (`reports/stage5_evaluation_report.md`).
+- [x] **Stage 6A**: Modular FastAPI ML backend (`backend/`) with 34 automated unit/API tests.
+- [x] **Stage 6B**: Expo Go React Native TypeScript mobile application (`mobile/`) with consumer-focused `True-black flat` UI (`Scan`, `Garage`), interactive vehicle selector, car card, and visual gallery matches.

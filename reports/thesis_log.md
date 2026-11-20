@@ -312,10 +312,23 @@ flowchart LR
 
 ---
 
+## Раздел 6B. Мобильное приложение Expo Go (`React Native TypeScript`)
+
+Реализован минималистичный пользовательский клиент [mobile/](file:///D:/Projects/bitirme/AutoVision/mobile/App.tsx) на базе **Expo SDK 58** (`blank-typescript`), очищенный от инженерного/серверного шума:
+
+- **Визуальное направление (`True-black flat`):** OLED-чёрный фон (`#000000`), безрамочные карточки со ступенчатой яркостью (`#111111` -> `#2A2A2A`), радиус `20 px` / `14 px` / `999 px` (inverted `#FFFFFF`/`#000000` pill-кнопки), шрифт **Inter** (`@expo-google-fonts/inter`, `expo-font`) в sentence-case, табличные цифры `tabular-nums`, без градиентов, теней и фонового polling (0% CPU в простое). Единственный акцент `#C6F24E` применяется только на марках данных.
+- **Экран `Scan` ([ScanScreen.tsx](file:///D:/Projects/bitirme/AutoVision/mobile/src/screens/ScanScreen.tsx)):** тёмный видоискатель «Identify any car», кнопки **Take photo** / **Choose from library** и лента последних машин `Recent`. При нескольких авто в кадре ([VehiclePhotoFrame.tsx](file:///D:/Projects/bitirme/AutoVision/mobile/src/components/VehiclePhotoFrame.tsx)) можно переключаться нажатием по угловым рамкам или чипам с тактильной отдачей (`expo-haptics`).
+- **Карточка автомобиля ([VehicleCard.tsx](file:///D:/Projects/bitirme/AutoVision/mobile/src/components/VehicleCard.tsx)):** заголовок `Make / Model`, процент совпадения, сетка 3 плиток (**Year** с диапазоном, **Body**, **Color** с реальным свотчем краски), при редких классах — пометка «Closest match», а также сворачиваемый блок «Other likely matches». Ниже — лента [SimilarCarsStrip.tsx](file:///D:/Projects/bitirme/AutoVision/mobile/src/components/SimilarCarsStrip.tsx) («Similar cars»).
+- **Экран `Garage` ([GarageScreen.tsx](file:///D:/Projects/bitirme/AutoVision/mobile/src/screens/GarageScreen.tsx)):** локально сохранённые до 30 машин в `AsyncStorage`, поиск по марке/модели/году/кузову/цвету и 2-шаговая очистка.
+- **Скрытая настройка адреса ([ConnectionSheet.tsx](file:///D:/Projects/bitirme/AutoVision/mobile/src/components/ConnectionSheet.tsx)):** по умолчанию `http://192.168.1.13:8000`; открывается только при сетевой ошибке («Change address») или долгим нажатием на логотип `AutoVision`.
+- **Верификация Stage 6B:** `npx tsc --noEmit` — 0 ошибок; `node --test tests/formatters.test.mjs` — 7/7 тестов пройдено; `taste-skill lint.mjs --app` — `0 FAIL, 0 WARN` на 13 файлах.
+
+---
+
 ## Раздел 7. План завершающего шага (Этап 6B и защита)
 
 - [x] **Этап 3B и подготовка кода Этапа 4:** таксономия 15/12 цветов `VCoR`, архитектура `AutoVisionMultiTaskNet`, автономный Kaggle-скрипт [train_multitask_autovision.py](file:///D:/Projects/bitirme/AutoVision/kaggle/train_multitask_autovision.py) и parity-тесты [test_multitask_pipeline.py](file:///D:/Projects/bitirme/AutoVision/tests/test_multitask_pipeline.py).
 - [x] **Этап 4 — Прогон Multi-Task Fine-Tuning на Kaggle GPU:** обучение обеих фаз завершено, все артефакты скачаны в `D:\Projects\bitirme\AutoVision\models\`.
 - [x] **Этап 5 — Сравнение «До / После» и визуальный аудит:** отчёт и все 7 графиков [stage5_evaluation_report.md](file:///D:/Projects/bitirme/AutoVision/reports/stage5_evaluation_report.md) собраны и проверены.
 - [x] **Этап 6A — Расширяемый ML-бэкенд (`FastAPI`):** реализованы модульный конвейер `YOLOv8n + AutoVisionMultiTaskNet + Cosine Retrieval (71 765 фото)`, REST-эндпоинты и автотесты (`backend/`, `tests/test_backend_api.py`).
-- [ ] **Этап 6B — Мобильное приложение `React Native (Expo TypeScript)` + финальный аудит `README.md`:** камера/галерея, кликабельные рамки `bbox_norm`, карточка 5 атрибутов (`hex`), карусель похожих машин и подключение к FastAPI по Wi-Fi.
+- [x] **Этап 6B — Мобильное приложение `React Native (Expo TypeScript)` + финальный аудит `README.md`:** потребительский UI `True-black flat` (`Scan`, `Garage`), фото-рамка, карточка авто и карусель похожих машин без технического шума.

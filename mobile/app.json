@@ -1,0 +1,52 @@
+{
+  "expo": {
+    "name": "AutoVision",
+    "slug": "autovision-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "AutoVision uses the camera to capture vehicles for identification.",
+        "NSPhotoLibraryUsageDescription": "AutoVision accesses your photo library to analyze vehicle photos.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
+    },
+    "android": {
+      "usesCleartextTraffic": true,
+      "permissions": [
+        "CAMERA",
+        "READ_MEDIA_IMAGES"
+      ],
+      "adaptiveIcon": {
+        "backgroundColor": "#000000",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "AutoVision accesses your photo library to analyze vehicles.",
+          "cameraPermission": "AutoVision uses the camera to capture vehicles for identification."
+        }
+      ],
+      "expo-font"
+    ],
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
