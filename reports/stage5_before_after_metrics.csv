@@ -1,0 +1,18 @@
+task,metric,frozen_openclip,frozen_fusion,finetuned_autovision,delta_vs_openclip,delta_vs_fusion,notes
+Make,Top-1 (Head/LP),0.9191,0.9381,0.9827,+0.0636,+0.0446,
+Make,Macro-F1,0.8835,0.9087,0.9459,+0.0624,+0.0372,
+Model,Top-1 (Head/LP),0.9052,0.9335,0.9638,+0.0586,+0.0303,CosFace Head
+Model,Top-5 (Head/LP),0.9865,0.9902,0.9892,+0.0027,-0.0010,
+Model,Macro-F1,0.8058,0.8484,0.8939,+0.0881,+0.0455,
+Model,Nearest Prototype Top-1,0.6409,,0.9616,+0.3207,,
+Model,Cosine kNN (k=5) Top-1,0.9078,,0.9715,+0.0637,,
+Few-Shot Model,1-Shot Prototype Top-1,0.3507,,0.3906,+0.0399,,queries=576
+Few-Shot Model,1-Shot Prototype Top-5,0.5069,,0.7135,+0.2066,,queries=576
+Body Type,Top-1 (Head/LP),0.9235,0.938,0.9769,+0.0534,+0.0389,
+Body Type,Macro-F1,0.876,0.8989,0.9577,+0.0817,+0.0588,Cosine kNN baseline=0.9466
+Year,"MAE (years, valid only)",2.027,1.788,1.0533,-0.9737,-0.7347,Lower is better
+Year,Within ±2 yr (%),0.5872,0.6485,0.8756,+0.2884,+0.2271,
+Color,15-Class Top-1,0.2808,,0.8676,+0.5868,,VCoR test
+Color,15-Class Macro-F1,0.2095,,0.8413,+0.6318,,VCoR test
+Color,12-Group Automotive Top-1,0.2963,,0.9081,+0.6118,,VCoR test
+Representation,2D t-SNE Silhouette,0.0341,,0.5321,+0.4980,,Top-10 test classes

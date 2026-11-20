@@ -1,0 +1,9 @@
+body_type,clean_imgs,clean_pct,train_imgs,val_imgs,test_imgs,few_shot_imgs,canonical_classes,example_models
+Sedan,45778,51.13,36390,4549,4547,292,130,"toyota__camry, nissan__altima, toyota__corolla, volkswagen__jetta"
+SUV,15678,17.51,12480,1563,1563,72,52,"toyota__4runner, nissan__pathfinder, subaru__forester, toyota__rav4"
+Hatchback,7667,8.56,6087,760,760,60,35,"volkswagen__beetle, toyota__prius, mini__cooper, volkswagen__golf"
+Coupe,7643,8.54,6019,748,755,121,59,"mitsubishi__eclipse, scion__tc, nissan__350z, pontiac__firebird"
+Minivan,4558,5.09,3620,456,453,29,23,"toyota__sienna, nissan__quest, pontiac__montana, oldsmobile__silhouette"
+Pickup,3731,4.17,2959,369,369,34,18,"toyota__tacoma, toyota__tundra, nissan__frontier, nissan__titan"
+Wagon,2827,3.16,2236,275,282,34,25,"subaru__outback, volkswagen__passat, volvo__v70, subaru__impreza"
+Convertible,1653,1.85,1281,165,156,51,20,"mercedes-benz__sl-class, porsche__boxster, mercedes-benz__slk-class, mitsubishi__eclipse"

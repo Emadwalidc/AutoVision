@@ -1,0 +1,10 @@
+backbone,dim,method,split,n_eval,top1,top3,macro_f1
+openclip_vitb16,512,Nearest Prototype,test,8885,0.8011,0.9795,0.7413
+openclip_vitb16,512,Cosine kNN (k=5),test,8885,0.9699,0.9952,0.9466
+openclip_vitb16,512,Linear Probe,test,8885,0.9235,0.9955,0.876
+dinov2_vitb14,768,Nearest Prototype,test,8885,0.7149,0.9543,0.5799
+dinov2_vitb14,768,Cosine kNN (k=5),test,8885,0.9388,0.9847,0.8938
+dinov2_vitb14,768,Linear Probe,test,8885,0.9109,0.9934,0.8416
+fusion_openclip_dinov2,1280,Nearest Prototype,test,8885,0.7866,0.9745,0.6857
+fusion_openclip_dinov2,1280,Cosine kNN (k=5),test,8885,0.9651,0.9935,0.9359
+fusion_openclip_dinov2,1280,Linear Probe,test,8885,0.938,0.9963,0.8989
