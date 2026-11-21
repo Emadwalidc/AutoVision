@@ -7,6 +7,7 @@ import os
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from urllib.parse import quote
 
@@ -30,10 +31,12 @@ from backend.main import create_app  # noqa: E402
 from backend.ml.classifier import ClassifierBatchOutput  # noqa: E402
 from backend.ml.detector import DetectedBox  # noqa: E402
 from backend.ml.pipeline import AutoVisionPipeline  # noqa: E402
+from backend.ml.retriever import NumpyCosineRetriever  # noqa: E402
 from backend.schemas import (  # noqa: E402
     AnalyzeResponse,
     FewShotCandidate,
     SimilarVehicle,
+    format_canonical_display_name,
     format_display_name,
 )
 from build_attributes_manifest import BODY_TYPE_CLASSES  # noqa: E402
@@ -254,6 +257,148 @@ class TestBackendApiUnit(unittest.TestCase):
                 self.assertEqual(r_miss.status_code, 404)
                 self.assertEqual(r_miss.json()["error_code"], "NOT_FOUND")
 
+    def test_gallery_thumbnail_serves_from_zip_and_blocks_traversal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_dir = root / "empty_data"
+            data_dir.mkdir(parents=True, exist_ok=True)
+            zip_path = root / "gallery_v2_thumbs.zip"
+
+            buf = io.BytesIO()
+            Image.new("RGB", (600, 450), (30, 80, 190)).save(buf, format="JPEG")
+            with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as zf:
+                zf.writestr("timdwms/Audi/A4/sample.jpg", buf.getvalue())
+
+            settings = BackendSettings(
+                project_root=BASE_DIR,
+                models_dir=BASE_DIR / "models",
+                manifest_path=BASE_DIR / "data_manifests" / "local_vmmrdb_multitask_manifest.csv",
+                data_dir=data_dir,
+                yolo_weights=BASE_DIR / "yolov8n.pt",
+                gallery_zip_path=zip_path,
+            )
+            pipeline = AutoVisionPipeline(settings, _FakeDetector(), _FakeClassifier(), _FakeRetriever())
+            app = create_app(settings=settings, pipeline=pipeline)
+
+            with TestClient(app) as client:
+                ok = client.get("/api/v1/gallery/thumbnail?rel_path=timdwms/Audi/A4/sample.jpg&max_width=200")
+                self.assertEqual(ok.status_code, 200)
+                self.assertEqual(ok.headers["content-type"], "image/jpeg")
+                with Image.open(io.BytesIO(ok.content)) as thumb:
+                    self.assertEqual(thumb.size, (200, 150))
+
+                for bad_rel in ("../secret.jpg", "C:/Windows/win.ini", "/etc/passwd"):
+                    r = client.get("/api/v1/gallery/thumbnail", params={"rel_path": bad_rel})
+                    self.assertEqual(r.status_code, 403, f"Expected 403 for {bad_rel}")
+                    self.assertEqual(r.json()["error_code"], "UNSAFE_PATH")
+
+                r_miss = client.get("/api/v1/gallery/thumbnail?rel_path=timdwms/Audi/A4/missing.jpg")
+                self.assertEqual(r_miss.status_code, 404)
+                self.assertEqual(r_miss.json()["error_code"], "NOT_FOUND")
+
+    def test_format_canonical_display_name_uses_v2_maps(self) -> None:
+        mk_map = {"audi": "Audi", "bmw": "BMW", "ram": "RAM"}
+        md_map = {"audi__e-tron_gt": "e-tron GT", "bmw__1_series": "1 Series"}
+        self.assertEqual(format_canonical_display_name("audi__e-tron_gt", mk_map, md_map), "Audi e-tron GT")
+        self.assertEqual(format_canonical_display_name("bmw__1_series", mk_map, md_map), "BMW 1 Series")
+        self.assertEqual(format_canonical_display_name("ram", mk_map, md_map), "RAM")
+        self.assertEqual(format_canonical_display_name("toyota__camry", mk_map, md_map), "Toyota Camry")
+
+    def test_eu_prototype_promotion_and_multi_zip_thumbnails(self) -> None:
+        import json as _json
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            models_dir = root / "models_p1"
+            eu_dir = root / "eu_ext"
+            data_dir = root / "data"
+            models_dir.mkdir(parents=True, exist_ok=True)
+            eu_dir.mkdir(parents=True, exist_ok=True)
+            data_dir.mkdir(parents=True, exist_ok=True)
+
+            v_closed = np.zeros((1, 512), dtype=np.float32)
+            v_closed[0, 0] = 1.0
+            np.savez_compressed(
+                models_dir / "prototypes_v2.npz",
+                prototypes=v_closed,
+                class_names=np.array(["toyota__camry"]),
+                makes=np.array(["toyota"]),
+                body_types=np.array(["Sedan"]),
+                split_types=np.array(["train"]),
+                is_few_shot=np.array([False]),
+            )
+            manifest_p = models_dir / "autovision_v2_manifest.csv"
+            manifest_p.write_text(
+                "rel_path,canonical_class,make,raw_year,year_valid,body_type,split,is_clean\n",
+                encoding="utf-8",
+            )
+
+            v_eu = np.zeros((1, 512), dtype=np.float32)
+            v_eu[0, 1] = 1.0
+            np.savez_compressed(
+                eu_dir / "eu_prototypes.npz",
+                prototypes=v_eu,
+                class_names=np.array(["skoda__octavia"]),
+                makes=np.array(["skoda"]),
+                body_types=np.array(["Sedan"]),
+                split_types=np.array(["eu_proto"]),
+                is_few_shot=np.array([True]),
+            )
+            np.savez_compressed(
+                eu_dir / "eu_gallery_embeddings.npz",
+                embeddings=v_eu,
+                rel_paths=np.array(["eu_dvm/skoda__octavia/sample_eu.jpg"]),
+            )
+            (eu_dir / "eu_gallery_manifest.csv").write_text(
+                "rel_path,canonical_class,make,raw_year,year_valid,body_type,split,is_clean\n"
+                "eu_dvm/skoda__octavia/sample_eu.jpg,skoda__octavia,skoda,2020,true,Sedan,few_shot,true\n",
+                encoding="utf-8",
+            )
+            (eu_dir / "eu_display_names.json").write_text(
+                _json.dumps({"make_display_names": {"skoda": "Skoda"}, "model_display_names": {"skoda__octavia": "Octavia"}}),
+                encoding="utf-8",
+            )
+            thumb_buf = io.BytesIO()
+            Image.new("RGB", (400, 300), (40, 120, 80)).save(thumb_buf, format="JPEG")
+            with zipfile.ZipFile(eu_dir / "eu_gallery_thumbs.zip", "w", compression=zipfile.ZIP_STORED) as zf:
+                zf.writestr("eu_dvm/skoda__octavia/sample_eu.jpg", thumb_buf.getvalue())
+
+            class _EuProbeClassifier(_FakeClassifier):
+                def classify_crops(self, crops: list[Image.Image], use_tta: bool = False) -> ClassifierBatchOutput:
+                    out = super().classify_crops(crops, use_tta=use_tta)
+                    out.embeddings[:, :] = 0.0
+                    out.embeddings[:, 1] = 1.0  # matches skoda__octavia with cos=1.0 vs closed cos=0.0
+                    return out
+
+            settings = BackendSettings(
+                project_root=BASE_DIR,
+                models_dir=models_dir,
+                manifest_path=manifest_p,
+                data_dir=data_dir,
+                yolo_weights=BASE_DIR / "yolov8n.pt",
+                eu_extension_dir=eu_dir,
+            )
+            retriever = NumpyCosineRetriever(models_dir, manifest_p, data_dir, eu_extension_dir=eu_dir)
+            pipeline = AutoVisionPipeline(settings, _FakeDetector(), _EuProbeClassifier(), retriever)
+            app = create_app(settings=settings, pipeline=pipeline)
+
+            q_buf = io.BytesIO()
+            Image.new("RGB", (160, 120), (80, 90, 100)).save(q_buf, format="JPEG")
+            with TestClient(app) as client:
+                r = client.post("/api/v1/analyze?top_k_similar=2", files={"file": ("skoda.jpg", q_buf.getvalue(), "image/jpeg")})
+                self.assertEqual(r.status_code, 200)
+                parsed = AnalyzeResponse.model_validate(r.json())
+                attrs = parsed.vehicles[0].attributes
+                self.assertEqual(attrs.make.label, "skoda")
+                self.assertEqual(attrs.make.display_name, "Skoda")
+                self.assertEqual(attrs.model.canonical_class, "skoda__octavia")
+                self.assertEqual(attrs.model.display_name, "Skoda Octavia")
+                self.assertGreaterEqual(attrs.model.confidence, 0.50)
+
+                tr = client.get(parsed.vehicles[0].similar_vehicles[0].thumbnail_url)
+                self.assertEqual(tr.status_code, 200)
+                self.assertEqual(tr.headers["content-type"], "image/jpeg")
+
 
 class TestBackendLiveIntegration(unittest.TestCase):
     def test_live_pipeline_on_real_checkpoint_and_photo(self) -> None:
@@ -262,13 +407,30 @@ class TestBackendLiveIntegration(unittest.TestCase):
         ckpt = settings.models_dir / "autovision_multitask_best.pt"
         lmaps = settings.models_dir / "label_maps.json"
         if not (ckpt.is_file() and lmaps.is_file() and sample_img.is_file()):
-            self.skipTest("Real Stage 4 weights or sample image not present")
+            self.skipTest("Real AutoVision weights or sample image not present")
 
         app = create_app(settings=settings)
         with TestClient(app) as client:
             h = client.get("/health")
             self.assertEqual(h.status_code, 200)
-            self.assertGreater(h.json()["gallery_size"], 70000)
+            h_json = h.json()
+            if settings.models_dir.name == "v2_phase1":
+                self.assertEqual(h_json["model_version"], "autovision-v2-vitb16-multitask")
+                self.assertEqual(h_json["num_makes"], 50)
+                self.assertEqual(h_json["num_models"], 617)
+                self.assertGreaterEqual(h_json["num_prototype_classes"], 738)
+                self.assertEqual(h_json["num_bodies"], 8)
+                self.assertEqual(h_json["num_colors"], 12)
+                self.assertGreaterEqual(h_json["gallery_size"], 22028)
+
+                cat = client.get("/api/v1/catalog")
+                self.assertEqual(cat.status_code, 200)
+                cat_json = cat.json()
+                self.assertEqual(cat_json["year_min"], 1950)
+                self.assertEqual(cat_json["year_max"], 2026)
+                self.assertEqual(len(cat_json["colors"]), 12)
+            else:
+                self.assertGreater(h_json["gallery_size"], 70000)
 
             resp = client.post(
                 "/api/v1/analyze?top_k_similar=5",

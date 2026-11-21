@@ -85,6 +85,29 @@ def format_display_name(raw: str) -> str:
     return _format_part(cleaned)
 
 
+def format_canonical_display_name(
+    raw: str,
+    make_display_names: dict[str, str] | None = None,
+    model_display_names: dict[str, str] | None = None,
+) -> str:
+    """Formats make or canonical `make__model` labels using label_maps display overrides when present."""
+    cleaned = raw.strip()
+    if not cleaned:
+        return ""
+    if "__" in cleaned:
+        mk_slug, _ = cleaned.split("__", 1)
+        mk_d = (make_display_names or {}).get(mk_slug)
+        md_d = (model_display_names or {}).get(cleaned)
+        if mk_d and md_d:
+            return f"{mk_d} {md_d}".strip()
+        if md_d:
+            return f"{_format_part(mk_slug)} {md_d}".strip()
+        return format_display_name(cleaned)
+    if make_display_names and cleaned in make_display_names:
+        return make_display_names[cleaned]
+    return format_display_name(cleaned)
+
+
 class ImageSize(BaseModel):
     width: int = Field(..., ge=1)
     height: int = Field(..., ge=1)

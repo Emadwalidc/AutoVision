@@ -81,19 +81,26 @@ def decode_uploaded_image(
             src_im.close()
 
 
-def resolve_safe_gallery_path(data_dir: Path, rel_path: str) -> Path:
-    """Safely resolves a relative gallery image path strictly inside data_dir."""
+def normalize_safe_gallery_rel_path(rel_path: str) -> str:
+    """Validates and normalizes a relative gallery path, rejecting absolute or traversal paths."""
     if not rel_path or "\x00" in rel_path:
         raise UnsafePathError("Gallery path is empty or contains null bytes.")
 
     norm_rel = rel_path.replace("\\", "/").strip()
-    if norm_rel.startswith("/") or ":" in norm_rel:
+    if not norm_rel or norm_rel.startswith("/") or ":" in norm_rel:
         raise UnsafePathError(f"Absolute or drive-qualified paths are forbidden: {rel_path!r}")
 
     posix = PurePosixPath(norm_rel)
     win = PureWindowsPath(rel_path)
-    if posix.is_absolute() or win.is_absolute() or ".." in posix.parts:
+    if posix.is_absolute() or win.is_absolute() or ".." in posix.parts or posix.as_posix() in ("", "."):
         raise UnsafePathError(f"Path traversal is forbidden: {rel_path!r}")
+    return posix.as_posix()
+
+
+def resolve_safe_gallery_path(data_dir: Path, rel_path: str) -> Path:
+    """Safely resolves a relative gallery image path strictly inside data_dir."""
+    norm_rel = normalize_safe_gallery_rel_path(rel_path)
+    posix = PurePosixPath(norm_rel)
 
     base = data_dir.resolve()
     resolved = (base / posix).resolve()

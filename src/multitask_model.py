@@ -157,6 +157,55 @@ def dldl_year_loss(
     return kl_loss + float(l1_weight) * l1_loss
 
 
+def year_interval_to_dldl_target(
+    y_low: torch.Tensor,
+    y_high: torch.Tensor,
+    year_min: int = 1950,
+    year_max: int = 2026,
+    sigma: float = 1.2,
+) -> torch.Tensor:
+    """Builds soft DLDL targets over [year_min, year_max] supporting both point years and generation intervals."""
+    bins = torch.arange(year_min, year_max + 1, device=y_low.device, dtype=torch.float32).unsqueeze(0)
+    lo = torch.minimum(y_low, y_high).float().clamp(min=float(year_min), max=float(year_max)).unsqueeze(1)
+    hi = torch.maximum(y_low, y_high).float().clamp(min=float(year_min), max=float(year_max)).unsqueeze(1)
+    dist_lo = torch.clamp(lo - bins, min=0.0)
+    dist_hi = torch.clamp(bins - hi, min=0.0)
+    dist = dist_lo + dist_hi
+    weights = torch.exp(-0.5 * (dist / float(sigma)).pow(2))
+    return weights / weights.sum(dim=-1, keepdim=True).clamp_min(1e-12)
+
+
+def dldl_interval_year_loss(
+    year_logits: torch.Tensor,
+    y_low: torch.Tensor,
+    y_high: torch.Tensor,
+    valid_mask: torch.Tensor,
+    year_min: int = 1950,
+    year_max: int = 2026,
+    sigma: float = 1.2,
+    l1_weight: float = 0.2,
+) -> torch.Tensor:
+    """Computes masked interval-aware DLDL KL + SmoothL1 midpoint loss for vehicle year."""
+    mask = valid_mask.bool()
+    if not torch.any(mask):
+        return year_logits.sum() * 0.0
+
+    logits_v = year_logits[mask].float()
+    lo_v = y_low[mask]
+    hi_v = y_high[mask]
+    target_probs = year_interval_to_dldl_target(
+        lo_v, hi_v, year_min=year_min, year_max=year_max, sigma=sigma
+    )
+    log_probs = F.log_softmax(logits_v, dim=-1)
+    kl_loss = -(target_probs * log_probs).sum(dim=-1).mean()
+    expected_v, _ = year_logits_to_expected(logits_v, year_min=year_min, year_max=year_max)
+    midpoint = (
+        0.5 * (lo_v.float() + hi_v.float())
+    ).clamp(min=float(year_min), max=float(year_max))
+    l1_loss = F.smooth_l1_loss(expected_v, midpoint, beta=1.0)
+    return kl_loss + float(l1_weight) * l1_loss
+
+
 class CosFaceHead(nn.Module):
     """Cosine margin classifier for fine-grained vehicle model recognition."""
 

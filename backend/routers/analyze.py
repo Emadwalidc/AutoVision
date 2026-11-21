@@ -18,7 +18,7 @@ async def analyze_vehicle_image(
     request: Request,
     file: UploadFile = File(..., description="JPEG, PNG, or WebP vehicle photo"),
     top_k_similar: int = Query(5, ge=0, le=12, description="Number of visually similar reference cars"),
-    use_tta: bool = Query(False, description="Enable horizontal-flip test-time augmentation"),
+    use_tta: bool = Query(True, description="Enable horizontal-flip test-time augmentation"),
 ) -> AnalyzeResponse:
     settings = request.app.state.settings
     pipeline = get_pipeline_from_request(request)

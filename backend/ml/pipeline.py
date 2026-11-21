@@ -29,7 +29,7 @@ from backend.schemas import (
     VehicleAttributes,
     VehicleDetectionResult,
     YearAttribute,
-    format_display_name,
+    format_canonical_display_name,
 )
 from backend.security import decode_uploaded_image
 
@@ -39,13 +39,21 @@ def _top_k_predictions(
     labels: list[str],
     k: int = 3,
     use_display: bool = True,
+    make_display_names: dict[str, str] | None = None,
+    model_display_names: dict[str, str] | None = None,
 ) -> list[TopKPrediction]:
     k_eff = min(k, len(labels), len(probs))
     top_idx = np.argsort(-probs)[:k_eff]
     return [
         TopKPrediction(
             label=labels[int(idx)],
-            display_name=format_display_name(labels[int(idx)]) if use_display else labels[int(idx)],
+            display_name=(
+                format_canonical_display_name(
+                    labels[int(idx)], make_display_names, model_display_names
+                )
+                if use_display
+                else labels[int(idx)]
+            ),
             confidence=round(min(max(float(probs[int(idx)]), 0.0), 1.0), 4),
         )
         for idx in top_idx
@@ -72,6 +80,8 @@ class AutoVisionPipeline:
         classifier = PyTorchAutoVisionClassifier(
             models_dir=settings.models_dir,
             device=settings.device,
+            color_models_dir=settings.color_models_dir,
+            model_temperature=settings.model_logit_temperature,
         )
         detector = YoloVehicleDetector(
             weights_path=settings.yolo_weights,
@@ -81,11 +91,16 @@ class AutoVisionPipeline:
             pad=settings.yolo_pad,
             max_vehicles=settings.max_vehicles_per_image,
             device=classifier.device,
+            seg_weights_path=settings.yolo_seg_weights,
         )
+        lmaps = classifier.label_maps
         retriever = NumpyCosineRetriever(
             models_dir=settings.models_dir,
             manifest_path=settings.manifest_path,
             data_dir=settings.data_dir,
+            make_display_names=lmaps.get("make_display_names"),
+            model_display_names=lmaps.get("model_display_names"),
+            eu_extension_dir=settings.eu_extension_dir,
         )
         return cls(settings=settings, detector=detector, classifier=classifier, retriever=retriever)
 
@@ -107,14 +122,102 @@ class AutoVisionPipeline:
         color_hex: dict[str, str] = lmaps["color_hex"]
         year_min = int(lmaps["year_min"])
         year_max = int(lmaps["year_max"])
+        make_display_names: dict[str, str] = {
+            **(lmaps.get("make_display_names") or {}),
+            **getattr(self.retriever, "make_display_names", {}),
+        }
+        model_display_names: dict[str, str] = {
+            **(lmaps.get("model_display_names") or {}),
+            **getattr(self.retriever, "model_display_names", {}),
+        }
 
-        mk_top3 = _top_k_predictions(clf_out.make_probs[vehicle_idx], make_classes, k=3, use_display=True)
-        md_top3 = _top_k_predictions(clf_out.model_probs[vehicle_idx], model_classes, k=3, use_display=True)
+        mk_top3 = _top_k_predictions(
+            clf_out.make_probs[vehicle_idx],
+            make_classes,
+            k=3,
+            use_display=True,
+            make_display_names=make_display_names,
+        )
+
+        # Gentle make-consistency tie-breaker over calibrated model probabilities
+        model_probs_vec = clf_out.model_probs[vehicle_idx]
+        model_cosines_all = getattr(clf_out, "model_cosines", None)
+        if model_cosines_all is not None and mk_top3[0].confidence >= 0.85:
+            make_to_id = {m: i for i, m in enumerate(make_classes)}
+            mk_probs_row = clf_out.make_probs[vehicle_idx]
+            make_prior = np.array(
+                [
+                    float(mk_probs_row[make_to_id[c.split("__", 1)[0]]])
+                    if c.split("__", 1)[0] in make_to_id
+                    else 0.0
+                    for c in model_classes
+                ],
+                dtype=np.float32,
+            )
+            eff_scale = 30.0 / max(float(self.settings.model_logit_temperature), 1e-3)
+            adj_logits = (model_cosines_all[vehicle_idx] + 0.025 * make_prior) * eff_scale
+            shifted = adj_logits - float(np.max(adj_logits))
+            ex = np.exp(shifted)
+            model_probs_vec = (ex / max(float(np.sum(ex)), 1e-12)).astype(np.float32)
+
+        md_top3 = _top_k_predictions(
+            model_probs_vec,
+            model_classes,
+            k=3,
+            use_display=True,
+            make_display_names=make_display_names,
+            model_display_names=model_display_names,
+        )
         bd_top3 = _top_k_predictions(clf_out.body_probs[vehicle_idx], body_classes, k=3, use_display=False)
         cl_top3 = _top_k_predictions(clf_out.color_probs[vehicle_idx], color_classes, k=3, use_display=False)
 
         emb = clf_out.embeddings[vehicle_idx]
-        few_shot = self.retriever.match_prototype(emb)
+        if hasattr(self.retriever, "match_prototypes_detailed"):
+            top_protos, best_closed_proto_sim, best_open_cand = self.retriever.match_prototypes_detailed(emb, top_k=5)
+            few_shot = top_protos[0] if top_protos else None
+            if best_open_cand is not None:
+                knn_votes = (
+                    self.retriever.knn_class_votes(emb, top_k=12, min_sim=0.45)
+                    if hasattr(self.retriever, "knn_class_votes")
+                    else {}
+                )
+                open_vote, _ = knn_votes.get(best_open_cand.canonical_class, (0.0, 0.0))
+                promote = (
+                    best_open_cand.similarity >= 0.56
+                    and best_open_cand.similarity >= best_closed_proto_sim + 0.035
+                ) or (
+                    best_open_cand.similarity >= 0.54
+                    and best_open_cand.similarity >= best_closed_proto_sim + 0.015
+                    and open_vote >= 0.45
+                )
+                if promote:
+                    promo_conf = round(min(0.95, max(0.50, float(best_open_cand.similarity))), 4)
+                    promoted_pred = TopKPrediction(
+                        label=best_open_cand.canonical_class,
+                        display_name=best_open_cand.display_name,
+                        confidence=promo_conf,
+                    )
+                    md_top3 = [promoted_pred] + [
+                        p for p in md_top3 if p.label != best_open_cand.canonical_class
+                    ]
+                    md_top3 = md_top3[:3]
+
+                    if (
+                        best_open_cand.make not in make_classes
+                        or best_open_cand.similarity >= best_closed_proto_sim + 0.05
+                    ):
+                        mk_pred = TopKPrediction(
+                            label=best_open_cand.make,
+                            display_name=format_canonical_display_name(
+                                best_open_cand.make, make_display_names
+                            ),
+                            confidence=promo_conf,
+                        )
+                        mk_top3 = [mk_pred] + [p for p in mk_top3 if p.label != best_open_cand.make]
+                        mk_top3 = mk_top3[:3]
+        else:
+            few_shot = self.retriever.match_prototype(emb)
+
         similars = self.retriever.search_similar(emb, top_k=top_k_similar) if top_k_similar > 0 else []
 
         yr_val = float(clf_out.year_expected[vehicle_idx])
@@ -183,7 +286,7 @@ class AutoVisionPipeline:
         self,
         raw_bytes: bytes,
         top_k_similar: int | None = None,
-        use_tta: bool = False,
+        use_tta: bool = True,
     ) -> AnalyzeResponse:
         t_start = time.perf_counter()
         k_sim = min(
@@ -201,7 +304,12 @@ class AutoVisionPipeline:
             t_det = time.perf_counter()
 
             crops = [rgb.crop((b.x1, b.y1, b.x2, b.y2)) for b in boxes]
-            clf_out = self.classifier.classify_crops(crops, use_tta=use_tta)
+            if getattr(self.classifier, "supports_masks", False):
+                clf_out = self.classifier.classify_crops(
+                    crops, use_tta=use_tta, masks=[b.mask for b in boxes]
+                )
+            else:
+                clf_out = self.classifier.classify_crops(crops, use_tta=use_tta)
             t_clf = time.perf_counter()
 
             lmaps = self.classifier.label_maps
