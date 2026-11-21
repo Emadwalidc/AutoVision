@@ -61,6 +61,9 @@ export function formatModelVersionLabel(rawVersion: string): string {
   if (!clean) {
     return "AutoVision";
   }
+  if (clean.includes("ondevice") || clean.includes("on-device")) {
+    return "AutoVision v2 \u00B7 Offline";
+  }
   if (clean.includes("v2")) {
     return "AutoVision v2";
   }

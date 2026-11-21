@@ -12,9 +12,9 @@ import {
   View,
 } from "react-native";
 
-import { SimilarCarsStrip } from "../components/SimilarCarsStrip";
 import { VehicleCard } from "../components/VehicleCard";
 import { VehiclePhotoFrame } from "../components/VehiclePhotoFrame";
+import type { InferenceMode } from "../services/inferenceService";
 import { fonts, palette, radius, spacing, typography } from "../theme/tokens";
 import type {
   AnalyzeResponse,
@@ -28,6 +28,7 @@ import {
 
 interface ScanScreenProps {
   serverUrl: string;
+  inferenceMode: InferenceMode;
   serverHealth?: HealthResponse | null;
   activeImageUri: string | null;
   analyzeResult: AnalyzeResponse | null;
@@ -54,6 +55,7 @@ interface ScanScreenProps {
 
 export function ScanScreen({
   serverUrl,
+  inferenceMode,
   serverHealth,
   activeImageUri,
   analyzeResult,
@@ -241,6 +243,11 @@ export function ScanScreen({
             </Text>
 
             <View style={styles.capRow}>
+              {inferenceMode === "on-device" ? (
+                <View style={styles.capPill}>
+                  <Text style={styles.capText}>Offline AI</Text>
+                </View>
+              ) : null}
               <View style={styles.capPill}>
                 <Text style={[styles.capText, typography.tabular]}>
                   {`${serverHealth?.num_prototype_classes ?? 784} models`}
@@ -441,17 +448,6 @@ export function ScanScreen({
               }
               onSelectCandidate={(idx) =>
                 onSelectModelCandidate(selectedVehicle.vehicle_index, idx)
-              }
-            />
-
-            <SimilarCarsStrip
-              similar={selectedVehicle.similar_vehicles}
-              serverUrl={serverUrl}
-              activeCanonicalClass={
-                resolveVehicleModelSelection(
-                  selectedVehicle,
-                  selectedModelIndices[selectedVehicle.vehicle_index],
-                ).canonicalClass
               }
             />
 

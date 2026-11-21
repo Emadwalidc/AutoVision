@@ -15,11 +15,13 @@ import { ConnectionSheet } from "./src/components/ConnectionSheet";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { GarageScreen } from "./src/screens/GarageScreen";
 import { ScanScreen } from "./src/screens/ScanScreen";
+import { ApiClientError } from "./src/services/apiClient";
 import {
-  analyzeVehiclePhoto,
-  ApiClientError,
-  checkHealth,
-} from "./src/services/apiClient";
+  analyzeVehicle,
+  checkInferenceHealth,
+  type InferenceMode,
+  isOnDeviceAvailable,
+} from "./src/services/inferenceService";
 import {
   appendHistoryItem,
   clearHistory,
@@ -50,6 +52,10 @@ export default function App(): React.ReactElement {
     Inter_600SemiBold,
   });
 
+  const onDeviceAvailable = isOnDeviceAvailable();
+  const [inferenceMode, setInferenceMode] = useState<InferenceMode>(() =>
+    onDeviceAvailable ? "on-device" : "server",
+  );
   const [activeTab, setActiveTab] = useState<TabId>("scan");
   const [serverUrl, setServerUrl] = useState<string>(DEFAULT_SERVER_URL);
   const [serverHealth, setServerHealth] = useState<HealthResponse | null>(null);
@@ -70,7 +76,7 @@ export default function App(): React.ReactElement {
   const [isNetworkError, setIsNetworkError] = useState<boolean>(false);
   const [connectionOpen, setConnectionOpen] = useState<boolean>(false);
 
-  // Hydrate saved LAN address, one-shot server health, and recent history; zero idle timers.
+  // Hydrate saved LAN address, one-shot engine health, and recent history; zero idle timers.
   useEffect(() => {
     let active = true;
     void (async () => {
@@ -84,8 +90,11 @@ export default function App(): React.ReactElement {
       setServerUrl(loadedUrl);
       setHistory(loadedHistory);
 
+      const initialMode: InferenceMode = onDeviceAvailable
+        ? "on-device"
+        : "server";
       try {
-        const health = await checkHealth(loadedUrl);
+        const health = await checkInferenceHealth(initialMode, loadedUrl);
         if (active) {
           setServerHealth(health);
         }
@@ -99,10 +108,15 @@ export default function App(): React.ReactElement {
     return () => {
       active = false;
     };
-  }, []);
+  }, [onDeviceAvailable]);
 
   const executeAnalyze = useCallback(
-    async (imageUri: string, meta: AssetMeta, targetUrl: string): Promise<void> => {
+    async (
+      imageUri: string,
+      meta: AssetMeta,
+      targetUrl: string,
+      mode: InferenceMode,
+    ): Promise<void> => {
       setActiveImageUri(imageUri);
       setActiveMeta(meta);
       setActiveHistoryId(null);
@@ -114,7 +128,7 @@ export default function App(): React.ReactElement {
       setSelectedModelIndices({});
 
       try {
-        const response = await analyzeVehiclePhoto(targetUrl, imageUri, meta);
+        const response = await analyzeVehicle(mode, targetUrl, imageUri, meta);
         setAnalyzeResult(response);
         setSelectedVehicleIndex(response.primary_vehicle_index ?? 0);
         Haptics.notificationAsync(
@@ -154,14 +168,21 @@ export default function App(): React.ReactElement {
   );
 
   const handleAnalyzePickedAsset = (uri: string, meta?: AssetMeta): void => {
-    void executeAnalyze(uri, meta ?? {}, serverUrl);
+    void executeAnalyze(uri, meta ?? {}, serverUrl, inferenceMode);
   };
 
   const handleRetryAnalyze = (): void => {
     if (!activeImageUri) {
       return;
     }
-    void executeAnalyze(activeImageUri, activeMeta, serverUrl);
+    void executeAnalyze(activeImageUri, activeMeta, serverUrl, inferenceMode);
+  };
+
+  const handleChangeInferenceMode = (nextMode: InferenceMode): void => {
+    setInferenceMode(nextMode);
+    void checkInferenceHealth(nextMode, serverUrl)
+      .then((h) => setServerHealth(h))
+      .catch(() => setServerHealth(null));
   };
 
   const handleClearActive = (): void => {
@@ -250,6 +271,7 @@ export default function App(): React.ReactElement {
             >
               <ScanScreen
                 serverUrl={serverUrl}
+                inferenceMode={inferenceMode}
                 serverHealth={serverHealth}
                 activeImageUri={activeImageUri}
                 analyzeResult={analyzeResult}
@@ -291,6 +313,9 @@ export default function App(): React.ReactElement {
           <ConnectionSheet
             visible={connectionOpen}
             serverUrl={serverUrl}
+            inferenceMode={inferenceMode}
+            onDeviceAvailable={onDeviceAvailable}
+            onChangeInferenceMode={handleChangeInferenceMode}
             onSave={handleSaveServerUrl}
             onHealthChecked={setServerHealth}
             onClose={() => setConnectionOpen(false)}

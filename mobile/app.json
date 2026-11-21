@@ -22,6 +22,7 @@
       }
     },
     "android": {
+      "package": "com.autovision.mobile",
       "usesCleartextTraffic": true,
       "permissions": [
         "CAMERA",
@@ -43,7 +44,8 @@
           "cameraPermission": "AutoVision uses the camera to capture vehicles for identification."
         }
       ],
-      "expo-font"
+      "expo-font",
+      "./plugins/withAutoVisionOnDevice"
     ],
     "web": {
       "favicon": "./assets/favicon.png"

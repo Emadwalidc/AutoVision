@@ -203,7 +203,7 @@ export function VehicleCard({
         <View style={styles.advisoryBanner}>
           <Feather name="info" size={14} color={palette.warningInk} />
           <Text style={styles.advisoryText}>
-            Close match — tap a variant below to switch or compare similar cars.
+            Close match — tap a variant below to switch.
           </Text>
         </View>
       ) : null}

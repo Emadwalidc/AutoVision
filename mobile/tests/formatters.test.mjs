@@ -99,6 +99,7 @@ test("getConfidenceTier categorizes high, medium, and low bands cleanly", () => 
 });
 
 test("formatModelVersionLabel, formatCompactCount, formatLatencySeconds, and withThumbnailWidth work cleanly", () => {
+  assert.equal(formatModelVersionLabel("autovision-v2-ondevice"), "AutoVision v2 \u00B7 Offline");
   assert.equal(formatModelVersionLabel("autovision-v2-vitb16-multitask"), "AutoVision v2");
   assert.equal(formatModelVersionLabel("autovision-v1-vitb16-multitask"), "AutoVision v1");
   assert.equal(formatModelVersionLabel(""), "AutoVision");

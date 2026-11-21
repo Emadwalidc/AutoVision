@@ -9,7 +9,10 @@ import {
   View,
 } from "react-native";
 
-import { checkHealth } from "../services/apiClient";
+import {
+  checkInferenceHealth,
+  type InferenceMode,
+} from "../services/inferenceService";
 import { fonts, palette, radius, spacing, typography } from "../theme/tokens";
 import type { HealthResponse } from "../types/api";
 import {
@@ -22,18 +25,24 @@ import {
 interface ConnectionSheetProps {
   visible: boolean;
   serverUrl: string;
+  inferenceMode: InferenceMode;
+  onDeviceAvailable: boolean;
+  onChangeInferenceMode: (mode: InferenceMode) => void;
   onSave: (cleanUrl: string) => Promise<void>;
   onHealthChecked?: (health: HealthResponse | null) => void;
   onClose: () => void;
 }
 
 /**
- * Server configuration & live AutoVision health sheet opened via top-bar button
- * or "Change address" on offline errors.
+ * Inference mode & AutoVision health sheet opened via top-bar button
+ * or "Change address" on offline server errors.
  */
 export function ConnectionSheet({
   visible,
   serverUrl,
+  inferenceMode,
+  onDeviceAvailable,
+  onChangeInferenceMode,
   onSave,
   onHealthChecked,
   onClose,
@@ -53,7 +62,7 @@ export function ConnectionSheet({
     let active = true;
     setDraft(serverUrl);
     setStatus(null);
-    void checkHealth(serverUrl)
+    void checkInferenceHealth(inferenceMode, serverUrl)
       .then((h) => {
         if (!active) {
           return;
@@ -71,7 +80,7 @@ export function ConnectionSheet({
     return () => {
       active = false;
     };
-  }, [visible, serverUrl, onHealthChecked]);
+  }, [visible, inferenceMode, serverUrl, onHealthChecked]);
 
   const handleSave = async (): Promise<void> => {
     const clean = normalizeServerUrl(draft);
@@ -85,7 +94,7 @@ export function ConnectionSheet({
     await onSave(clean);
 
     try {
-      const h = await checkHealth(clean);
+      const h = await checkInferenceHealth("server", clean);
       setHealthInfo(h);
       onHealthChecked?.(h);
       setStatus({ kind: "ok", text: "Connected and saved." });
@@ -105,7 +114,7 @@ export function ConnectionSheet({
     setDraft(DEFAULT_SERVER_URL);
     await onSave(DEFAULT_SERVER_URL);
     try {
-      const h = await checkHealth(DEFAULT_SERVER_URL);
+      const h = await checkInferenceHealth("server", DEFAULT_SERVER_URL);
       setHealthInfo(h);
       onHealthChecked?.(h);
     } catch {
@@ -114,6 +123,8 @@ export function ConnectionSheet({
     }
     setStatus({ kind: "ok", text: "Reset to default address." });
   };
+
+  const isOfflineMode = onDeviceAvailable && inferenceMode === "on-device";
 
   return (
     <Modal
@@ -125,7 +136,7 @@ export function ConnectionSheet({
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           <View style={styles.header}>
-            <Text style={typography.section}>Connection</Text>
+            <Text style={typography.section}>Engine</Text>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Close connection sheet"
@@ -136,20 +147,65 @@ export function ConnectionSheet({
             </Pressable>
           </View>
 
+          {onDeviceAvailable ? (
+            <View style={styles.modeRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected: isOfflineMode }}
+                onPress={() => onChangeInferenceMode("on-device")}
+                style={[
+                  styles.modePill,
+                  isOfflineMode && styles.modePillActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.modeText,
+                    isOfflineMode && styles.modeTextActive,
+                  ]}
+                >
+                  On-device (Offline)
+                </Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected: !isOfflineMode }}
+                onPress={() => onChangeInferenceMode("server")}
+                style={[
+                  styles.modePill,
+                  !isOfflineMode && styles.modePillActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.modeText,
+                    !isOfflineMode && styles.modeTextActive,
+                  ]}
+                >
+                  Remote server
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
+
           <Text style={styles.description}>
-            Local address of your computer running AutoVision on the same Wi-Fi.
+            {isOfflineMode
+              ? "Runs YOLOv8n-seg, ViT-B/16, and Color Expert directly on your phone — no laptop or internet required."
+              : "Local address of your computer running AutoVision on the same Wi-Fi."}
           </Text>
 
-          <TextInput
-            value={draft}
-            onChangeText={setDraft}
-            placeholder={DEFAULT_SERVER_URL}
-            placeholderTextColor={palette.faint}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="url"
-            style={[styles.input, typography.tabular]}
-          />
+          {!isOfflineMode ? (
+            <TextInput
+              value={draft}
+              onChangeText={setDraft}
+              placeholder={DEFAULT_SERVER_URL}
+              placeholderTextColor={palette.faint}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              style={[styles.input, typography.tabular]}
+            />
+          ) : null}
 
           {healthInfo ? (
             <View style={styles.healthCard}>
@@ -168,13 +224,15 @@ export function ConnectionSheet({
                   `${healthInfo.num_makes} makes`,
                   `${healthInfo.num_prototype_classes} models`,
                   `${healthInfo.num_colors} colors`,
-                  `${formatCompactCount(healthInfo.gallery_size)} gallery`,
+                  isOfflineMode
+                    ? "Offline"
+                    : `${formatCompactCount(healthInfo.gallery_size)} gallery`,
                 ].join(" \u00B7 ")}
               </Text>
             </View>
           ) : null}
 
-          {status ? (
+          {!isOfflineMode && status ? (
             <View
               style={[
                 styles.statusPill,
@@ -194,34 +252,47 @@ export function ConnectionSheet({
             </View>
           ) : null}
 
-          <View style={styles.actions}>
+          {isOfflineMode ? (
             <Pressable
               accessibilityRole="button"
-              disabled={testing}
-              onPress={() => {
-                void handleSave();
-              }}
+              onPress={onClose}
               style={({ pressed }) => [
-                styles.primaryBtn,
-                (pressed || testing) && styles.btnMuted,
+                styles.donePill,
+                pressed && styles.btnMuted,
               ]}
             >
-              <Text style={styles.primaryBtnText}>
-                {testing ? "Checking..." : "Save & test"}
-              </Text>
+              <Text style={styles.primaryBtnText}>Done</Text>
             </Pressable>
+          ) : (
+            <View style={styles.actions}>
+              <Pressable
+                accessibilityRole="button"
+                disabled={testing}
+                onPress={() => {
+                  void handleSave();
+                }}
+                style={({ pressed }) => [
+                  styles.primaryBtn,
+                  (pressed || testing) && styles.btnMuted,
+                ]}
+              >
+                <Text style={styles.primaryBtnText}>
+                  {testing ? "Checking..." : "Save & test"}
+                </Text>
+              </Pressable>
 
-            <Pressable
-              accessibilityRole="button"
-              disabled={testing}
-              onPress={() => {
-                void handleReset();
-              }}
-              style={styles.secondaryBtn}
-            >
-              <Text style={styles.secondaryBtnText}>Reset</Text>
-            </Pressable>
-          </View>
+              <Pressable
+                accessibilityRole="button"
+                disabled={testing}
+                onPress={() => {
+                  void handleReset();
+                }}
+                style={styles.secondaryBtn}
+              >
+                <Text style={styles.secondaryBtnText}>Reset</Text>
+              </Pressable>
+            </View>
+          )}
         </View>
       </View>
     </Modal>
@@ -324,6 +395,42 @@ const styles = StyleSheet.create({
   },
   btnMuted: {
     opacity: 0.7,
+  },
+  modeRow: {
+    flexDirection: "row",
+    gap: 8,
+    backgroundColor: palette.ground,
+    borderRadius: radius.pill,
+    padding: 4,
+  },
+  modePill: {
+    flex: 1,
+    height: 36,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  modePillActive: {
+    backgroundColor: palette.primaryBg,
+  },
+  modeText: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    lineHeight: 16,
+    color: palette.muted,
+  },
+  modeTextActive: {
+    fontFamily: fonts.semibold,
+    color: palette.primaryInk,
+  },
+  donePill: {
+    height: 44,
+    borderRadius: radius.pill,
+    backgroundColor: palette.primaryBg,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
   },
   healthCard: {
     backgroundColor: palette.raised,
