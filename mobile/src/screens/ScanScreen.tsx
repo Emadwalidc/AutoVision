@@ -16,19 +16,32 @@ import { SimilarCarsStrip } from "../components/SimilarCarsStrip";
 import { VehicleCard } from "../components/VehicleCard";
 import { VehiclePhotoFrame } from "../components/VehiclePhotoFrame";
 import { fonts, palette, radius, spacing, typography } from "../theme/tokens";
-import type { AnalyzeResponse, ScanHistoryItem } from "../types/api";
-import { formatModelTitle } from "../utils/formatters";
+import type {
+  AnalyzeResponse,
+  HealthResponse,
+  ScanHistoryItem,
+} from "../types/api";
+import {
+  formatCompactCount,
+  resolveVehicleModelSelection,
+} from "../utils/formatters";
 
 interface ScanScreenProps {
   serverUrl: string;
+  serverHealth?: HealthResponse | null;
   activeImageUri: string | null;
   analyzeResult: AnalyzeResponse | null;
   selectedVehicleIndex: number;
+  selectedModelIndices: Record<number, number>;
   isAnalyzing: boolean;
   errorMessage: string | null;
   isNetworkError: boolean;
   recentItems: ScanHistoryItem[];
   onSelectVehicle: (index: number) => void;
+  onSelectModelCandidate: (
+    vehicleIndex: number,
+    candidateIndex: number,
+  ) => void;
   onAnalyzePickedAsset: (
     uri: string,
     meta?: { mimeType?: string; fileName?: string },
@@ -41,14 +54,17 @@ interface ScanScreenProps {
 
 export function ScanScreen({
   serverUrl,
+  serverHealth,
   activeImageUri,
   analyzeResult,
   selectedVehicleIndex,
+  selectedModelIndices,
   isAnalyzing,
   errorMessage,
   isNetworkError,
   recentItems,
   onSelectVehicle,
+  onSelectModelCandidate,
   onAnalyzePickedAsset,
   onRetryAnalyze,
   onClearActive,
@@ -139,20 +155,69 @@ export function ScanScreen({
         </Pressable>
 
         {activeImageUri && !isAnalyzing ? (
+          <View style={styles.topBarActions}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                setPickerError(null);
+                onClearActive();
+              }}
+              style={({ pressed }) => [
+                styles.newPill,
+                pressed && styles.pressedFade,
+              ]}
+            >
+              <Text style={styles.newPillText}>New</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Server connection"
+              onPress={onOpenConnectionSheet}
+              style={({ pressed }) => [
+                styles.connBtn,
+                pressed && styles.pressedFade,
+              ]}
+            >
+              <Feather name="sliders" size={15} color={palette.ink} />
+              <View
+                style={[
+                  styles.statusDot,
+                  {
+                    backgroundColor: serverHealth?.ready
+                      ? palette.accent
+                      : isNetworkError
+                        ? palette.negativeInk
+                        : palette.faint,
+                  },
+                ]}
+              />
+            </Pressable>
+          </View>
+        ) : (
           <Pressable
             accessibilityRole="button"
-            onPress={() => {
-              setPickerError(null);
-              onClearActive();
-            }}
+            accessibilityLabel="Server connection"
+            onPress={onOpenConnectionSheet}
             style={({ pressed }) => [
-              styles.newPill,
+              styles.connBtn,
               pressed && styles.pressedFade,
             ]}
           >
-            <Text style={styles.newPillText}>New</Text>
+            <Feather name="sliders" size={15} color={palette.ink} />
+            <View
+              style={[
+                styles.statusDot,
+                {
+                  backgroundColor: serverHealth?.ready
+                    ? palette.accent
+                    : isNetworkError
+                      ? palette.negativeInk
+                      : palette.faint,
+                },
+              ]}
+            />
           </Pressable>
-        ) : null}
+        )}
       </View>
 
       {/* Idle State */}
@@ -174,6 +239,31 @@ export function ScanScreen({
             <Text style={styles.heroSub}>
               Take a photo or choose one from your library.
             </Text>
+
+            <View style={styles.capRow}>
+              <View style={styles.capPill}>
+                <Text style={[styles.capText, typography.tabular]}>
+                  {`${serverHealth?.num_prototype_classes ?? 784} models`}
+                </Text>
+              </View>
+              <View style={styles.capPill}>
+                <Text style={[styles.capText, typography.tabular]}>
+                  1950–2026
+                </Text>
+              </View>
+              <View style={styles.capPill}>
+                <Text style={[styles.capText, typography.tabular]}>
+                  {`${serverHealth?.num_colors ?? 12} colors`}
+                </Text>
+              </View>
+              {serverHealth?.gallery_size ? (
+                <View style={styles.capPill}>
+                  <Text style={[styles.capText, typography.tabular]}>
+                    {`${formatCompactCount(serverHealth.gallery_size)} refs`}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
           </View>
 
           <View style={styles.ctaStack}>
@@ -231,11 +321,12 @@ export function ScanScreen({
                     item.response.vehicles[
                       item.response.primary_vehicle_index
                     ] ?? item.response.vehicles[0];
-                  const make = primary?.attributes.make.display_name ?? "";
-                  const model = formatModelTitle(
-                    make,
-                    primary?.attributes.model.display_name ?? "Vehicle",
-                  );
+                  const selection = primary
+                    ? resolveVehicleModelSelection(
+                        primary,
+                        item.selectedModelIndices?.[primary.vehicle_index],
+                      )
+                    : null;
                   const year = primary?.attributes.year.predicted_rounded;
                   return (
                     <Pressable
@@ -253,7 +344,9 @@ export function ScanScreen({
                       />
                       <View style={styles.recentMeta}>
                         <Text style={styles.recentTitle} numberOfLines={1}>
-                          {`${make} ${model}`.trim()}
+                          {selection
+                            ? `${selection.makeDisplay} ${selection.modelTitle}`.trim()
+                            : "Vehicle"}
                         </Text>
                         {year ? (
                           <Text
@@ -280,6 +373,7 @@ export function ScanScreen({
           imageSize={analyzeResult?.image_size ?? null}
           vehicles={analyzeResult?.vehicles ?? []}
           selectedIndex={selectedVehicleIndex}
+          selectedModelIndices={selectedModelIndices}
           onSelectVehicle={onSelectVehicle}
         />
       ) : null}
@@ -288,7 +382,12 @@ export function ScanScreen({
       {isAnalyzing ? (
         <View style={styles.loadingCard}>
           <ActivityIndicator size="small" color={palette.accent} />
-          <Text style={styles.loadingText}>Identifying car...</Text>
+          <View style={styles.loadingTextCol}>
+            <Text style={styles.loadingText}>Analyzing vehicle...</Text>
+            <Text style={styles.loadingSubText}>
+              Detecting car, model, year & paint color
+            </Text>
+          </View>
         </View>
       ) : null}
 
@@ -333,11 +432,27 @@ export function ScanScreen({
       {!isAnalyzing && analyzeResult ? (
         selectedVehicle ? (
           <>
-            <VehicleCard vehicle={selectedVehicle} />
+            <VehicleCard
+              vehicle={selectedVehicle}
+              modelVersion={analyzeResult.model_version}
+              timingsMs={analyzeResult.timings_ms.total_ms}
+              selectedCandidateIndex={
+                selectedModelIndices[selectedVehicle.vehicle_index] ?? 0
+              }
+              onSelectCandidate={(idx) =>
+                onSelectModelCandidate(selectedVehicle.vehicle_index, idx)
+              }
+            />
 
             <SimilarCarsStrip
               similar={selectedVehicle.similar_vehicles}
               serverUrl={serverUrl}
+              activeCanonicalClass={
+                resolveVehicleModelSelection(
+                  selectedVehicle,
+                  selectedModelIndices[selectedVehicle.vehicle_index],
+                ).canonicalClass
+              }
             />
 
             <View style={styles.bottomCtaRow}>
@@ -413,10 +528,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   brandRow: {
+    flex: 1,
+    minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    flexShrink: 0,
   },
   reticleIcon: {
     width: 22,
@@ -457,9 +573,33 @@ const styles = StyleSheet.create({
   brandTitle: {
     fontFamily: fonts.semibold,
     fontSize: 20,
-    lineHeight: 24,
-    paddingRight: 4,
+    lineHeight: 26,
+    letterSpacing: -0.2,
+    paddingRight: 10,
+    includeFontPadding: false,
     color: palette.ink,
+  },
+  topBarActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  connBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.pill,
+    backgroundColor: palette.raised,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  statusDot: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 7,
+    height: 7,
+    borderRadius: radius.pill,
   },
   newPill: {
     backgroundColor: palette.raised,
@@ -541,6 +681,25 @@ const styles = StyleSheet.create({
     color: palette.muted,
     textAlign: "center",
   },
+  capRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 6,
+  },
+  capPill: {
+    backgroundColor: palette.raised,
+    borderRadius: radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  capText: {
+    fontFamily: fonts.medium,
+    fontSize: 11,
+    lineHeight: 15,
+    color: palette.muted,
+  },
   ctaStack: {
     gap: 10,
   },
@@ -619,11 +778,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
+  loadingTextCol: {
+    flex: 1,
+    gap: 2,
+  },
   loadingText: {
     fontFamily: fonts.medium,
     fontSize: 15,
     lineHeight: 20,
     color: palette.ink,
+  },
+  loadingSubText: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    lineHeight: 16,
+    color: palette.muted,
   },
   errorCard: {
     backgroundColor: palette.surface,

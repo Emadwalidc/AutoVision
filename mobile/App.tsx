@@ -4,6 +4,7 @@ import {
   Inter_600SemiBold,
   useFonts,
 } from "@expo-google-fonts/inter";
+import * as Haptics from "expo-haptics";
 import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
@@ -17,16 +18,24 @@ import { ScanScreen } from "./src/screens/ScanScreen";
 import {
   analyzeVehiclePhoto,
   ApiClientError,
+  checkHealth,
 } from "./src/services/apiClient";
 import {
   appendHistoryItem,
   clearHistory,
   loadHistory,
   loadServerUrl,
+  removeHistoryItem,
   saveServerUrl,
+  updateHistorySelection,
 } from "./src/services/storage";
 import { palette } from "./src/theme/tokens";
-import type { AnalyzeResponse, ScanHistoryItem, TabId } from "./src/types/api";
+import type {
+  AnalyzeResponse,
+  HealthResponse,
+  ScanHistoryItem,
+  TabId,
+} from "./src/types/api";
 import { DEFAULT_SERVER_URL } from "./src/utils/formatters";
 
 interface AssetMeta {
@@ -43,20 +52,25 @@ export default function App(): React.ReactElement {
 
   const [activeTab, setActiveTab] = useState<TabId>("scan");
   const [serverUrl, setServerUrl] = useState<string>(DEFAULT_SERVER_URL);
+  const [serverHealth, setServerHealth] = useState<HealthResponse | null>(null);
   const [history, setHistory] = useState<ScanHistoryItem[]>([]);
 
   const [activeImageUri, setActiveImageUri] = useState<string | null>(null);
   const [activeMeta, setActiveMeta] = useState<AssetMeta>({});
+  const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
   const [analyzeResult, setAnalyzeResult] = useState<AnalyzeResponse | null>(
     null,
   );
   const [selectedVehicleIndex, setSelectedVehicleIndex] = useState<number>(0);
+  const [selectedModelIndices, setSelectedModelIndices] = useState<
+    Record<number, number>
+  >({});
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isNetworkError, setIsNetworkError] = useState<boolean>(false);
   const [connectionOpen, setConnectionOpen] = useState<boolean>(false);
 
-  // Hydrate saved LAN address and recent history once on launch; zero idle timers.
+  // Hydrate saved LAN address, one-shot server health, and recent history; zero idle timers.
   useEffect(() => {
     let active = true;
     void (async () => {
@@ -69,6 +83,17 @@ export default function App(): React.ReactElement {
       }
       setServerUrl(loadedUrl);
       setHistory(loadedHistory);
+
+      try {
+        const health = await checkHealth(loadedUrl);
+        if (active) {
+          setServerHealth(health);
+        }
+      } catch {
+        if (active) {
+          setServerHealth(null);
+        }
+      }
     })();
 
     return () => {
@@ -80,16 +105,21 @@ export default function App(): React.ReactElement {
     async (imageUri: string, meta: AssetMeta, targetUrl: string): Promise<void> => {
       setActiveImageUri(imageUri);
       setActiveMeta(meta);
+      setActiveHistoryId(null);
       setIsAnalyzing(true);
       setErrorMessage(null);
       setIsNetworkError(false);
       setAnalyzeResult(null);
       setSelectedVehicleIndex(0);
+      setSelectedModelIndices({});
 
       try {
         const response = await analyzeVehiclePhoto(targetUrl, imageUri, meta);
         setAnalyzeResult(response);
         setSelectedVehicleIndex(response.primary_vehicle_index ?? 0);
+        Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Success,
+        ).catch(() => {});
 
         const entry: ScanHistoryItem = {
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -97,12 +127,16 @@ export default function App(): React.ReactElement {
           imageUri,
           response,
         };
+        setActiveHistoryId(entry.id);
         setHistory((prev) => {
           void appendHistoryItem(entry, prev).catch(() => {});
           return [entry, ...prev].slice(0, 30);
         });
       } catch (err: unknown) {
         const apiErr = err instanceof ApiClientError ? err : null;
+        Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Error,
+        ).catch(() => {});
         setErrorMessage(
           apiErr?.message || "Something went wrong. Please try again.",
         );
@@ -133,24 +167,62 @@ export default function App(): React.ReactElement {
   const handleClearActive = (): void => {
     setActiveImageUri(null);
     setActiveMeta({});
+    setActiveHistoryId(null);
     setAnalyzeResult(null);
     setSelectedVehicleIndex(0);
+    setSelectedModelIndices({});
     setErrorMessage(null);
     setIsNetworkError(false);
   };
 
   const handleOpenHistoryItem = (item: ScanHistoryItem): void => {
     setActiveImageUri(item.imageUri);
+    setActiveHistoryId(item.id);
     setAnalyzeResult(item.response);
     setSelectedVehicleIndex(item.response.primary_vehicle_index ?? 0);
+    setSelectedModelIndices(item.selectedModelIndices ?? {});
     setErrorMessage(null);
     setIsNetworkError(false);
     setActiveTab("scan");
   };
 
+  const handleSelectModelCandidate = (
+    vehicleIndex: number,
+    candidateIndex: number,
+  ): void => {
+    const nextIndices: Record<number, number> = {
+      ...selectedModelIndices,
+      [vehicleIndex]: candidateIndex,
+    };
+    setSelectedModelIndices(nextIndices);
+    if (activeHistoryId) {
+      setHistory((prev) => {
+        void updateHistorySelection(activeHistoryId, nextIndices, prev).catch(
+          () => {},
+        );
+        return prev.map((item) =>
+          item.id === activeHistoryId
+            ? { ...item, selectedModelIndices: nextIndices }
+            : item,
+        );
+      });
+    }
+  };
+
   const handleClearAllHistory = async (): Promise<void> => {
     await clearHistory();
+    setActiveHistoryId(null);
     setHistory([]);
+  };
+
+  const handleDeleteHistoryItem = (id: string): void => {
+    if (activeHistoryId === id) {
+      setActiveHistoryId(null);
+    }
+    setHistory((prev) => {
+      void removeHistoryItem(id, prev).catch(() => {});
+      return prev.filter((item) => item.id !== id);
+    });
   };
 
   const handleSaveServerUrl = async (nextUrl: string): Promise<void> => {
@@ -178,14 +250,17 @@ export default function App(): React.ReactElement {
             >
               <ScanScreen
                 serverUrl={serverUrl}
+                serverHealth={serverHealth}
                 activeImageUri={activeImageUri}
                 analyzeResult={analyzeResult}
                 selectedVehicleIndex={selectedVehicleIndex}
+                selectedModelIndices={selectedModelIndices}
                 isAnalyzing={isAnalyzing}
                 errorMessage={errorMessage}
                 isNetworkError={isNetworkError}
                 recentItems={history}
                 onSelectVehicle={setSelectedVehicleIndex}
+                onSelectModelCandidate={handleSelectModelCandidate}
                 onAnalyzePickedAsset={handleAnalyzePickedAsset}
                 onRetryAnalyze={handleRetryAnalyze}
                 onClearActive={handleClearActive}
@@ -199,6 +274,7 @@ export default function App(): React.ReactElement {
                 <GarageScreen
                   items={history}
                   onOpenItem={handleOpenHistoryItem}
+                  onDeleteItem={handleDeleteHistoryItem}
                   onClearHistory={handleClearAllHistory}
                   onGoScan={() => setActiveTab("scan")}
                 />
@@ -216,6 +292,7 @@ export default function App(): React.ReactElement {
             visible={connectionOpen}
             serverUrl={serverUrl}
             onSave={handleSaveServerUrl}
+            onHealthChecked={setServerHealth}
             onClose={() => setConnectionOpen(false)}
           />
         </SafeAreaView>

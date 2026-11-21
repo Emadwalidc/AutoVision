@@ -12,11 +12,16 @@ import {
 
 import { fonts, palette, radius, spacing, typography } from "../theme/tokens";
 import type { ScanHistoryItem } from "../types/api";
-import { formatModelTitle, formatRelativeTime } from "../utils/formatters";
+import {
+  formatPercent,
+  formatRelativeTime,
+  resolveVehicleModelSelection,
+} from "../utils/formatters";
 
 interface GarageScreenProps {
   items: ScanHistoryItem[];
   onOpenItem: (item: ScanHistoryItem) => void;
+  onDeleteItem?: (id: string) => void;
   onClearHistory: () => Promise<void>;
   onGoScan: () => void;
 }
@@ -24,6 +29,7 @@ interface GarageScreenProps {
 export function GarageScreen({
   items,
   onOpenItem,
+  onDeleteItem,
   onClearHistory,
   onGoScan,
 }: GarageScreenProps): React.ReactElement {
@@ -42,15 +48,21 @@ export function GarageScreen({
       if (!primary) {
         return false;
       }
-      const haystack = [
-        primary.attributes.make.display_name,
-        primary.attributes.model.display_name,
-        String(primary.attributes.year.predicted_rounded),
-        primary.attributes.body_type.display_name,
-        primary.attributes.color.display_name,
-      ]
-        .join(" ")
-        .toLowerCase();
+      const haystack = (() => {
+        const selection = resolveVehicleModelSelection(
+          primary,
+          item.selectedModelIndices?.[primary.vehicle_index],
+        );
+        return [
+          selection.makeDisplay,
+          selection.modelTitle,
+          String(primary.attributes.year.predicted_rounded),
+          primary.attributes.body_type.display_name,
+          primary.attributes.color.display_name,
+        ]
+          .join(" ")
+          .toLowerCase();
+      })();
       return haystack.includes(clean);
     });
   }, [items, query]);
@@ -101,7 +113,7 @@ export function GarageScreen({
         ) : null}
       </View>
 
-      {items.length >= 4 ? (
+      {items.length >= 2 ? (
         <View style={styles.searchRow}>
           <View style={styles.searchPill}>
             <Feather name="search" size={15} color={palette.muted} />
@@ -163,15 +175,19 @@ export function GarageScreen({
             const primary =
               item.response.vehicles[item.response.primary_vehicle_index] ??
               item.response.vehicles[0];
-            const makeName = primary?.attributes.make.display_name ?? "";
-            const cleanModel = formatModelTitle(
-              makeName,
-              primary?.attributes.model.display_name ?? "Vehicle",
-            );
+            const selection = primary
+              ? resolveVehicleModelSelection(
+                  primary,
+                  item.selectedModelIndices?.[primary.vehicle_index],
+                )
+              : null;
+            const makeName = selection?.makeDisplay ?? "";
+            const cleanModel = selection?.modelTitle ?? "Vehicle";
             const yearRounded =
               primary?.attributes.year.predicted_rounded ?? null;
             const bodyName = primary?.attributes.body_type.display_name ?? "";
             const colorObj = primary?.attributes.color;
+            const conf = selection?.confidence ?? null;
             const carCount = item.response.num_vehicles;
 
             return (
@@ -221,11 +237,36 @@ export function GarageScreen({
                   </Text>
                 </View>
 
-                <Feather
-                  name="chevron-right"
-                  size={18}
-                  color={palette.faint}
-                />
+                <View style={styles.cardRight}>
+                  {conf !== null ? (
+                    <Text style={[styles.confText, typography.tabular]}>
+                      {formatPercent(conf, 0)}
+                    </Text>
+                  ) : null}
+                  {onDeleteItem ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${cleanModel} from Garage`}
+                      hitSlop={8}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        onDeleteItem(item.id);
+                      }}
+                      style={({ pressed }) => [
+                        styles.deleteBtn,
+                        pressed && styles.pressedFade,
+                      ]}
+                    >
+                      <Feather name="trash-2" size={14} color={palette.muted} />
+                    </Pressable>
+                  ) : (
+                    <Feather
+                      name="chevron-right"
+                      size={18}
+                      color={palette.faint}
+                    />
+                  )}
+                </View>
               </Pressable>
             );
           }}
@@ -391,5 +432,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     color: palette.faint,
+  },
+  cardRight: {
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  confText: {
+    fontFamily: fonts.semibold,
+    fontSize: 12,
+    lineHeight: 16,
+    color: palette.accent,
+  },
+  deleteBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: radius.pill,
+    backgroundColor: palette.raised,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

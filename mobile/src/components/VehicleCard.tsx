@@ -1,25 +1,38 @@
 import { Feather } from "@expo/vector-icons";
-import React, { useState } from "react";
+import * as Haptics from "expo-haptics";
+import React, { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { fonts, palette, radius, spacing, typography } from "../theme/tokens";
 import type { TopKPrediction, VehicleDetectionResult } from "../types/api";
 import {
-  formatModelTitle,
+  formatLatencySeconds,
+  formatModelVersionLabel,
   formatPercent,
   formatYearSpanOnly,
+  getConfidenceTier,
+  resolveVehicleModelSelection,
+  splitCandidateMakeAndModel,
 } from "../utils/formatters";
 
 interface VehicleCardProps {
   vehicle: VehicleDetectionResult;
+  modelVersion?: string | null;
+  timingsMs?: number | null;
+  selectedCandidateIndex?: number;
+  onSelectCandidate?: (index: number) => void;
 }
 
 function CandidateGroup({
   title,
   items,
+  selectedIndex,
+  onSelectIndex,
 }: {
   title: string;
   items: TopKPrediction[];
+  selectedIndex?: number;
+  onSelectIndex?: (index: number) => void;
 }): React.ReactElement | null {
   if (items.length === 0) {
     return null;
@@ -32,12 +45,24 @@ function CandidateGroup({
         const widthPct = Math.round(
           Math.max(0, Math.min(1, item.confidence)) * 100,
         );
-        return (
-          <View key={`${item.label}-${idx}`} style={styles.candidateRow}>
+        const isSelected = selectedIndex === idx;
+        const rowBody = (
+          <>
             <View style={styles.candidateLabelRow}>
-              <Text style={styles.candidateName} numberOfLines={1}>
-                {item.display_name}
-              </Text>
+              <View style={styles.candidateNameRow}>
+                {isSelected ? (
+                  <Feather name="check" size={13} color={palette.accent} />
+                ) : null}
+                <Text
+                  style={[
+                    styles.candidateName,
+                    isSelected && styles.candidateNameActive,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {item.display_name}
+                </Text>
+              </View>
               <Text style={[styles.candidateConf, typography.tabular]}>
                 {formatPercent(item.confidence, 0)}
               </Text>
@@ -47,6 +72,31 @@ function CandidateGroup({
                 style={[styles.candidateFill, { width: `${widthPct}%` }]}
               />
             </View>
+          </>
+        );
+
+        if (onSelectIndex) {
+          return (
+            <Pressable
+              key={`${item.label}-${idx}`}
+              accessibilityRole="button"
+              accessibilityState={{ selected: isSelected }}
+              onPress={() => onSelectIndex(idx)}
+              style={({ pressed }) => [
+                styles.candidateRow,
+                styles.candidateRowInteractive,
+                isSelected && styles.candidateRowActive,
+                pressed && styles.altPressed,
+              ]}
+            >
+              {rowBody}
+            </Pressable>
+          );
+        }
+
+        return (
+          <View key={`${item.label}-${idx}`} style={styles.candidateRow}>
+            {rowBody}
           </View>
         );
       })}
@@ -56,40 +106,177 @@ function CandidateGroup({
 
 /**
  * Borderless dark surface card presenting the car's Make, Model, Year,
- * Body style, and Paint Color, with optional expandable alternatives.
+ * Body style, Paint Color, interactive candidate switcher, and Top-3 breakdown.
  */
 export function VehicleCard({
   vehicle,
+  modelVersion,
+  timingsMs,
+  selectedCandidateIndex,
+  onSelectCandidate,
 }: VehicleCardProps): React.ReactElement {
-  const [expanded, setExpanded] = useState(false);
-
   const { make, model, year, body_type: bodyType, color } = vehicle.attributes;
-  const cleanModel = formatModelTitle(make.display_name, model.display_name);
+  const [expanded, setExpanded] = useState(model.confidence < 0.75);
+
+  useEffect(() => {
+    setExpanded(model.confidence < 0.75);
+  }, [vehicle.vehicle_index, model.canonical_class]);
+
+  const active = resolveVehicleModelSelection(vehicle, selectedCandidateIndex);
   const yearSpan = formatYearSpanOnly(year.range_low, year.range_high);
+  const top1Tier = getConfidenceTier(model.confidence);
+  const activeTier = getConfidenceTier(active.confidence);
+  const matchPct = formatPercent(active.confidence, 0);
+
+  const matchLabel = active.isOverride
+    ? `${matchPct} \u00B7 Selected`
+    : activeTier === "high"
+      ? `${matchPct} match`
+      : activeTier === "medium"
+        ? `${matchPct} \u00B7 Likely`
+        : `${matchPct} \u00B7 Close match`;
+
+  const matchPillStyle = active.isOverride
+    ? styles.matchPillPositive
+    : activeTier === "high"
+      ? styles.matchPillPositive
+      : activeTier === "medium"
+        ? styles.matchPillNeutral
+        : styles.matchPillWarning;
+  const matchTextStyle = active.isOverride
+    ? styles.matchTextPositive
+    : activeTier === "high"
+      ? styles.matchTextPositive
+      : activeTier === "medium"
+        ? styles.matchTextNeutral
+        : styles.matchTextWarning;
+
+  const parsedCandidates = active.candidates.map((cand) => ({
+    cand,
+    parsed: splitCandidateMakeAndModel(
+      cand,
+      make.label,
+      make.display_name,
+      make.top3,
+    ),
+  }));
+  const allSameMake = parsedCandidates.every(
+    ({ parsed }) =>
+      parsed.makeDisplay.trim().toLowerCase() ===
+      make.display_name.trim().toLowerCase(),
+  );
+
+  const handleSelectCandidate = (idx: number): void => {
+    if (idx === active.index) {
+      return;
+    }
+    Haptics.selectionAsync().catch(() => {});
+    onSelectCandidate?.(idx);
+  };
+
+  const footerMeta = [
+    modelVersion ? formatModelVersionLabel(modelVersion) : null,
+    timingsMs ? formatLatencySeconds(timingsMs) : null,
+  ]
+    .filter(Boolean)
+    .join(" \u00B7 ");
 
   return (
     <View style={styles.card}>
       {/* Hero identity */}
       <View style={styles.heroRow}>
         <View style={styles.heroLeft}>
-          <Text style={styles.makeEyebrow}>{make.display_name}</Text>
+          <Text style={styles.makeEyebrow}>{active.makeDisplay}</Text>
           <Text style={styles.modelTitle} numberOfLines={2}>
-            {cleanModel}
+            {active.modelTitle}
           </Text>
         </View>
 
-        <View style={styles.matchPill}>
-          <Text style={[styles.matchPillText, typography.tabular]}>
-            {`${formatPercent(model.confidence, 0)} match`}
+        <View style={[styles.matchPill, matchPillStyle]}>
+          <Text style={[styles.matchPillText, typography.tabular, matchTextStyle]}>
+            {matchLabel}
           </Text>
         </View>
       </View>
 
-      {model.few_shot_match?.is_few_shot ? (
+      {top1Tier === "low" && !active.isOverride ? (
+        <View style={styles.advisoryBanner}>
+          <Feather name="info" size={14} color={palette.warningInk} />
+          <Text style={styles.advisoryText}>
+            Close match — tap a variant below to switch or compare similar cars.
+          </Text>
+        </View>
+      ) : null}
+
+      {model.few_shot_match?.is_few_shot &&
+      model.few_shot_match.canonical_class !== active.canonicalClass ? (
         <View style={styles.closestPill}>
           <Text style={styles.closestText}>
-            {`Closest match: ${model.few_shot_match.display_name}`}
+            {`Closest prototype: ${model.few_shot_match.display_name} (${formatPercent(model.few_shot_match.similarity, 0)})`}
           </Text>
+        </View>
+      ) : null}
+
+      {/* Interactive candidate switcher across Top-K model predictions */}
+      {active.candidates.length > 1 ? (
+        <View style={styles.altRow}>
+          <View style={styles.altHeaderRow}>
+            <Text style={styles.altLabel}>
+              {top1Tier === "low" ? "Possible models" : "Model candidates"}
+            </Text>
+            {active.isOverride ? (
+              <Pressable
+                accessibilityRole="button"
+                hitSlop={6}
+                onPress={() => handleSelectCandidate(0)}
+                style={({ pressed }) => [pressed && styles.altPressed]}
+              >
+                <Text style={styles.resetLink}>Reset to #1</Text>
+              </Pressable>
+            ) : (
+              <Text style={styles.altHint}>Tap to switch</Text>
+            )}
+          </View>
+          <View style={styles.altChips}>
+            {parsedCandidates.map(({ cand, parsed }, idx) => {
+              const isSelected = idx === active.index;
+              const chipLabel = allSameMake
+                ? parsed.modelTitle
+                : cand.display_name;
+              return (
+                <Pressable
+                  key={`${cand.label}-${idx}`}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected }}
+                  onPress={() => handleSelectCandidate(idx)}
+                  style={({ pressed }) => [
+                    styles.altChip,
+                    isSelected && styles.altChipActive,
+                    pressed && styles.altPressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.altChipName,
+                      isSelected && styles.altChipNameActive,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {chipLabel}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.altChipPct,
+                      typography.tabular,
+                      isSelected && styles.altChipPctActive,
+                    ]}
+                  >
+                    {formatPercent(cand.confidence, 0)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
       ) : null}
 
@@ -117,6 +304,9 @@ export function VehicleCard({
           >
             {bodyType.display_name}
           </Text>
+          <Text style={[styles.specSub, typography.tabular]}>
+            {formatPercent(bodyType.confidence, 0)}
+          </Text>
         </View>
 
         <View style={styles.specTile}>
@@ -137,10 +327,13 @@ export function VehicleCard({
               {color.display_name}
             </Text>
           </View>
+          <Text style={[styles.specSub, typography.tabular]}>
+            {formatPercent(color.confidence, 0)}
+          </Text>
         </View>
       </View>
 
-      {/* Expandable other likely matches */}
+      {/* Expandable full Top-3 breakdown */}
       <View style={styles.expandDivider}>
         <Pressable
           accessibilityRole="button"
@@ -151,7 +344,7 @@ export function VehicleCard({
             pressed && styles.expandPressed,
           ]}
         >
-          <Text style={styles.expandLabel}>Other likely matches</Text>
+          <Text style={styles.expandLabel}>All predictions & probabilities</Text>
           <Feather
             name={expanded ? "chevron-up" : "chevron-down"}
             size={18}
@@ -161,10 +354,20 @@ export function VehicleCard({
 
         {expanded ? (
           <View style={styles.expandBody}>
-            <CandidateGroup title="Model" items={model.top3} />
-            <CandidateGroup title="Make" items={make.top3} />
-            <CandidateGroup title="Body" items={bodyType.top3} />
-            <CandidateGroup title="Color" items={color.top3} />
+            <CandidateGroup
+              title="Model (Top 3)"
+              items={active.candidates}
+              selectedIndex={active.index}
+              onSelectIndex={handleSelectCandidate}
+            />
+            <CandidateGroup title="Make (Top 3)" items={make.top3} />
+            <CandidateGroup title="Body (Top 3)" items={bodyType.top3} />
+            <CandidateGroup title="Color (Top 3)" items={color.top3} />
+            {footerMeta ? (
+              <Text style={[styles.footerMeta, typography.tabular]}>
+                {footerMeta}
+              </Text>
+            ) : null}
           </View>
         ) : null}
       </View>
@@ -199,17 +402,49 @@ const styles = StyleSheet.create({
     ...typography.heroModel,
   },
   matchPill: {
-    backgroundColor: palette.positiveBg,
     borderRadius: radius.pill,
     paddingHorizontal: 10,
     paddingVertical: 5,
     marginTop: 2,
   },
+  matchPillPositive: {
+    backgroundColor: palette.positiveBg,
+  },
+  matchPillNeutral: {
+    backgroundColor: palette.neutralBg,
+  },
+  matchPillWarning: {
+    backgroundColor: palette.warningBg,
+  },
   matchPillText: {
     fontFamily: fonts.semibold,
     fontSize: 12,
     lineHeight: 16,
+  },
+  matchTextPositive: {
     color: palette.positiveInk,
+  },
+  matchTextNeutral: {
+    color: palette.neutralInk,
+  },
+  matchTextWarning: {
+    color: palette.warningInk,
+  },
+  advisoryBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: palette.warningBg,
+    borderRadius: radius.tile,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  advisoryText: {
+    flex: 1,
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    lineHeight: 17,
+    color: palette.warningInk,
   },
   closestPill: {
     alignSelf: "flex-start",
@@ -223,6 +458,75 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     color: palette.warningInk,
+  },
+  altRow: {
+    gap: 8,
+  },
+  altHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  altLabel: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    lineHeight: 16,
+    color: palette.muted,
+  },
+  altHint: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    lineHeight: 15,
+    color: palette.faint,
+  },
+  resetLink: {
+    fontFamily: fonts.semibold,
+    fontSize: 12,
+    lineHeight: 16,
+    color: palette.accent,
+  },
+  altChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  altChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: palette.raised,
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    maxWidth: "100%",
+  },
+  altChipActive: {
+    backgroundColor: palette.primaryBg,
+  },
+  altPressed: {
+    opacity: 0.72,
+  },
+  altChipName: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    lineHeight: 16,
+    color: palette.ink,
+    flexShrink: 1,
+  },
+  altChipNameActive: {
+    fontFamily: fonts.semibold,
+    color: palette.primaryInk,
+  },
+  altChipPct: {
+    fontFamily: fonts.semibold,
+    fontSize: 12,
+    lineHeight: 16,
+    color: palette.accent,
+  },
+  altChipPctActive: {
+    color: palette.primaryInk,
+    opacity: 0.72,
   },
   specRow: {
     flexDirection: "row",
@@ -312,11 +616,26 @@ const styles = StyleSheet.create({
   candidateRow: {
     gap: 4,
   },
+  candidateRowInteractive: {
+    borderRadius: radius.chip,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    marginHorizontal: -6,
+  },
+  candidateRowActive: {
+    backgroundColor: palette.surface,
+  },
   candidateLabelRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     gap: spacing.sm,
+  },
+  candidateNameRow: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   candidateName: {
     flex: 1,
@@ -324,6 +643,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     color: palette.ink,
+  },
+  candidateNameActive: {
+    fontFamily: fonts.semibold,
   },
   candidateConf: {
     fontFamily: fonts.semibold,
@@ -342,5 +664,12 @@ const styles = StyleSheet.create({
     height: "100%",
     backgroundColor: palette.accent,
     borderRadius: 2,
+  },
+  footerMeta: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    lineHeight: 16,
+    color: palette.faint,
+    textAlign: "right",
   },
 });

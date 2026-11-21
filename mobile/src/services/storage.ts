@@ -75,6 +75,29 @@ export async function appendHistoryItem(
   return next;
 }
 
+export async function removeHistoryItem(
+  id: string,
+  current: ScanHistoryItem[],
+): Promise<ScanHistoryItem[]> {
+  const next = current.filter((item) => item.id !== id);
+  await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+  return next;
+}
+
+export async function updateHistorySelection(
+  id: string,
+  selectedModelIndices: Record<number, number>,
+  current: ScanHistoryItem[],
+): Promise<ScanHistoryItem[]> {
+  const next = current.map((item) =>
+    item.id === id
+      ? { ...item, selectedModelIndices: { ...selectedModelIndices } }
+      : item,
+  );
+  await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+  return next;
+}
+
 export async function clearHistory(): Promise<void> {
   await AsyncStorage.removeItem(HISTORY_KEY);
 }

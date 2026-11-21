@@ -168,4 +168,5 @@ export interface ScanHistoryItem {
   createdAt: string;
   imageUri: string;
   response: AnalyzeResponse;
+  selectedModelIndices?: Record<number, number>;
 }

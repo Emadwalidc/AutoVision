@@ -11,38 +11,67 @@ import {
 
 import { checkHealth } from "../services/apiClient";
 import { fonts, palette, radius, spacing, typography } from "../theme/tokens";
-import { DEFAULT_SERVER_URL, normalizeServerUrl } from "../utils/formatters";
+import type { HealthResponse } from "../types/api";
+import {
+  DEFAULT_SERVER_URL,
+  formatCompactCount,
+  formatModelVersionLabel,
+  normalizeServerUrl,
+} from "../utils/formatters";
 
 interface ConnectionSheetProps {
   visible: boolean;
   serverUrl: string;
   onSave: (cleanUrl: string) => Promise<void>;
+  onHealthChecked?: (health: HealthResponse | null) => void;
   onClose: () => void;
 }
 
 /**
- * Unobtrusive modal sheet opened only when the user taps "Change address"
- * on an offline error or long-presses the app wordmark.
+ * Server configuration & live AutoVision health sheet opened via top-bar button
+ * or "Change address" on offline errors.
  */
 export function ConnectionSheet({
   visible,
   serverUrl,
   onSave,
+  onHealthChecked,
   onClose,
 }: ConnectionSheetProps): React.ReactElement {
   const [draft, setDraft] = useState(serverUrl);
   const [testing, setTesting] = useState(false);
+  const [healthInfo, setHealthInfo] = useState<HealthResponse | null>(null);
   const [status, setStatus] = useState<{
     kind: "ok" | "err";
     text: string;
   } | null>(null);
 
   useEffect(() => {
-    if (visible) {
-      setDraft(serverUrl);
-      setStatus(null);
+    if (!visible) {
+      return;
     }
-  }, [visible, serverUrl]);
+    let active = true;
+    setDraft(serverUrl);
+    setStatus(null);
+    void checkHealth(serverUrl)
+      .then((h) => {
+        if (!active) {
+          return;
+        }
+        setHealthInfo(h);
+        onHealthChecked?.(h);
+      })
+      .catch(() => {
+        if (!active) {
+          return;
+        }
+        setHealthInfo(null);
+        onHealthChecked?.(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [visible, serverUrl, onHealthChecked]);
 
   const handleSave = async (): Promise<void> => {
     const clean = normalizeServerUrl(draft);
@@ -56,9 +85,13 @@ export function ConnectionSheet({
     await onSave(clean);
 
     try {
-      await checkHealth(clean);
+      const h = await checkHealth(clean);
+      setHealthInfo(h);
+      onHealthChecked?.(h);
       setStatus({ kind: "ok", text: "Connected and saved." });
     } catch {
+      setHealthInfo(null);
+      onHealthChecked?.(null);
       setStatus({
         kind: "err",
         text: "Saved, but still could not reach that address.",
@@ -71,6 +104,14 @@ export function ConnectionSheet({
   const handleReset = async (): Promise<void> => {
     setDraft(DEFAULT_SERVER_URL);
     await onSave(DEFAULT_SERVER_URL);
+    try {
+      const h = await checkHealth(DEFAULT_SERVER_URL);
+      setHealthInfo(h);
+      onHealthChecked?.(h);
+    } catch {
+      setHealthInfo(null);
+      onHealthChecked?.(null);
+    }
     setStatus({ kind: "ok", text: "Reset to default address." });
   };
 
@@ -109,6 +150,29 @@ export function ConnectionSheet({
             keyboardType="url"
             style={[styles.input, typography.tabular]}
           />
+
+          {healthInfo ? (
+            <View style={styles.healthCard}>
+              <View style={styles.healthTop}>
+                <Text style={styles.healthTitle}>
+                  {formatModelVersionLabel(healthInfo.model_version)}
+                </Text>
+                <View style={styles.healthBadge}>
+                  <Text style={[styles.healthBadgeText, typography.tabular]}>
+                    {healthInfo.device.toUpperCase()}
+                  </Text>
+                </View>
+              </View>
+              <Text style={[styles.healthMeta, typography.tabular]}>
+                {[
+                  `${healthInfo.num_makes} makes`,
+                  `${healthInfo.num_prototype_classes} models`,
+                  `${healthInfo.num_colors} colors`,
+                  `${formatCompactCount(healthInfo.gallery_size)} gallery`,
+                ].join(" \u00B7 ")}
+              </Text>
+            </View>
+          ) : null}
 
           {status ? (
             <View
@@ -260,5 +324,41 @@ const styles = StyleSheet.create({
   },
   btnMuted: {
     opacity: 0.7,
+  },
+  healthCard: {
+    backgroundColor: palette.raised,
+    borderRadius: radius.tile,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    gap: 4,
+  },
+  healthTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  healthTitle: {
+    fontFamily: fonts.semibold,
+    fontSize: 13,
+    lineHeight: 18,
+    color: palette.ink,
+  },
+  healthBadge: {
+    backgroundColor: palette.positiveBg,
+    borderRadius: radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  healthBadgeText: {
+    fontFamily: fonts.semibold,
+    fontSize: 11,
+    lineHeight: 15,
+    color: palette.positiveInk,
+  },
+  healthMeta: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    lineHeight: 16,
+    color: palette.muted,
   },
 });

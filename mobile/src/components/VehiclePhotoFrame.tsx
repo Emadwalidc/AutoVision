@@ -15,7 +15,7 @@ import { fonts, palette, radius, spacing, typography } from "../theme/tokens";
 import type { ImageSize, VehicleDetectionResult } from "../types/api";
 import {
   computeContainedImageRect,
-  formatModelTitle,
+  resolveVehicleModelSelection,
 } from "../utils/formatters";
 
 interface VehiclePhotoFrameProps {
@@ -23,6 +23,7 @@ interface VehiclePhotoFrameProps {
   imageSize?: ImageSize | null;
   vehicles: VehicleDetectionResult[];
   selectedIndex: number;
+  selectedModelIndices?: Record<number, number>;
   onSelectVehicle: (vehicleIndex: number) => void;
 }
 
@@ -35,6 +36,7 @@ export function VehiclePhotoFrame({
   imageSize,
   vehicles,
   selectedIndex,
+  selectedModelIndices,
   onSelectVehicle,
 }: VehiclePhotoFrameProps): React.ReactElement {
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
@@ -125,13 +127,18 @@ export function VehiclePhotoFrame({
                 ? styles.cornerSelected
                 : styles.cornerIdle;
 
+              const selection = resolveVehicleModelSelection(
+                vehicle,
+                selectedModelIndices?.[vehicle.vehicle_index],
+              );
+
               return (
                 <Pressable
                   key={vehicle.vehicle_index}
                   hitSlop={8}
                   disabled={!showMultiple}
                   accessibilityRole={showMultiple ? "button" : "image"}
-                  accessibilityLabel={`${vehicle.attributes.make.display_name} ${formatModelTitle(vehicle.attributes.make.display_name, vehicle.attributes.model.display_name)}`}
+                  accessibilityLabel={`${selection.makeDisplay} ${selection.modelTitle}`.trim()}
                   onPress={() => handleTapBox(vehicle.vehicle_index)}
                   style={[
                     styles.bbox,
@@ -185,10 +192,9 @@ export function VehiclePhotoFrame({
         >
           {vehicles.map((vehicle) => {
             const active = vehicle.vehicle_index === selectedIndex;
-            const make = vehicle.attributes.make.display_name;
-            const model = formatModelTitle(
-              make,
-              vehicle.attributes.model.display_name,
+            const selection = resolveVehicleModelSelection(
+              vehicle,
+              selectedModelIndices?.[vehicle.vehicle_index],
             );
             return (
               <Pressable
@@ -207,7 +213,7 @@ export function VehiclePhotoFrame({
                     active ? styles.carChipTextActive : styles.carChipTextIdle,
                   ]}
                 >
-                  {`Car ${vehicle.vehicle_index + 1} \u00B7 ${make} ${model}`}
+                  {`Car ${vehicle.vehicle_index + 1} \u00B7 ${selection.makeDisplay} ${selection.modelTitle}`}
                 </Text>
               </Pressable>
             );
