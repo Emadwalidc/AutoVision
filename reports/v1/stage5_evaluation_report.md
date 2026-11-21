@@ -95,10 +95,10 @@
 
 ## 6. Сформированные графики
 
-- `figures/stage5_training_curves.png`
-- `figures/stage5_before_after_bars.png`
-- `figures/stage5_tsne_before_after.png`
-- `figures/stage5_body_type_confusion_matrix.png`
-- `figures/stage5_year_dldl_evaluation.png`
-- `figures/stage5_color_confusion_matrix.png`
-- `figures/stage5_retrieval_montage_finetuned.png`
+- `../figures/v1/stage5_training_curves.png`
+- `../figures/v1/stage5_before_after_bars.png`
+- `../figures/v1/stage5_tsne_before_after.png`
+- `../figures/v1/stage5_body_type_confusion_matrix.png`
+- `../figures/v1/stage5_year_dldl_evaluation.png`
+- `../figures/v1/stage5_color_confusion_matrix.png`
+- `../figures/v1/stage5_retrieval_montage_finetuned.png`

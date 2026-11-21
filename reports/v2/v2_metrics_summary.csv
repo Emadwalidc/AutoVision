@@ -1,0 +1,27 @@
+task,metric,autovision_v1,autovision_v2,notes
+Dataset,Total Clean Images,,274319,
+Dataset,Closed Models / Makes,,617 / 50,
+Dataset,Prototype Classes (Closed+FewShot),,738,
+Dataset,Gallery Size,,22028,
+Make,Top-1 Overall (50 makes),0.9827,0.9628,
+Make,Top-1 VMMRdb Street,0.9827,0.9854,
+Make,Macro-F1 Overall,0.9459,0.9547,
+Model,Top-1 Overall (617 cls),0.9638,0.9408,
+Model,Top-5 Overall (617 cls),0.9892,0.9752,
+Model,Macro-F1 Overall (617 cls),0.8939,0.9221,
+Model,Nearest Prototype Top-1 (738 cls),0.9616,0.9247,
+Model,Top-1 Modern 2017-2026,,0.95,
+Model,Top-1 VMMRdb Street,,0.9596,
+Body Type,Top-1 Overall,0.9769,0.9459,
+Body Type,Top-3 Overall,,0.9933,
+Body Type,Top-1 VMMRdb Street,0.9769,0.978,
+Year,MAE Midpoint Overall (yr),1.0533,1.2461,Lower is better
+Year,Within +-2 yr Overall,0.8756,0.9076,
+Year,MAE Midpoint 2017-2026 (yr),,0.9165,
+Year,Within +-2 yr 2017-2026,,0.9782,
+Color,VCoR Test Top-1 (12 cls),0.8676,0.928,Phase 2 ConvNeXt-Tiny + Lab
+Color,VCoR Test Top-3,,0.9839,
+Color,VCoR Test Macro-F1,0.8413,0.9187,
+Color,DVM-CAR Test Top-1,,0.8748,
+Color,DVM-CAR Test Macro-F1,,0.8441,
+Representation,2D t-SNE Cosine Silhouette,,0.6911,12 diverse gallery classes
